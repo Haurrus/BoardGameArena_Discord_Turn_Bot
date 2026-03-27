@@ -1,4 +1,4 @@
-# BGA Discord self-host bot
+﻿# BGA Discord self-host bot
 
 [Version francaise](README.md)
 
@@ -11,6 +11,7 @@ Target workflow:
 - you add a BGA table with `/bga watch <full_url>`
 - the bot detects whose turn it is
 - it creates, updates, deletes, then recreates Discord messages as turns evolve
+- when the game is over, it removes the last active message and automatically removes the watch
 
 ## 1. Deployment
 
@@ -62,7 +63,7 @@ LOG_LEVEL=INFO
 
 - `DISCORD_TOKEN`: Discord bot token
 - `DISCORD_GUILD_ID`: optional, enables near-instant slash command sync for one guild
-- `BGA_POLL_SECONDS`: supervision interval for table workers on the bot side
+- `BGA_POLL_SECONDS`: supervision interval for the monitor scheduler
 - `BGA_DB_PATH`: SQLite file path
 - `BGA_WS_URL`: public BGA websocket endpoint
 - `LOG_LEVEL`: console log level
@@ -72,7 +73,7 @@ LOG_LEVEL=INFO
 1. Go to `https://discord.com/developers/applications`
 2. Create an application
 3. Open the `Bot` tab
-4. copy the bot token into `.env`
+4. Copy the bot token into `.env`
 5. Open `OAuth2 > URL Generator`
 6. Check `bot` and `applications.commands`
 7. Invite the bot to your server
@@ -175,6 +176,7 @@ Rules:
 - the command expects a full public table URL
 - the bot extracts `table_id`, `gameserver`, and `game_name` from the URL
 - the watch is attached to the current guild and channel
+- the websocket worker starts immediately after the command, without waiting for the next scheduler cycle
 
 ### `/bga unwatch`
 
@@ -315,6 +317,13 @@ The bot reconstructs `waiting_ids` with this priority order:
 3. `yourturnack` as a light fallback
 4. limited public heuristics on some events (`beginTurn`, `endPrivateAction`, etc.)
 
+To detect that a game is finished, the bot also uses:
+
+1. `tableInfosChanged` with `status = finished`
+2. `tableInfosChanged.reload_reason = tableDestroy`
+3. end-of-game events visible in the public stream (`End of game`, `simpleNote`, `simpleNode`)
+4. a fallback `tableinfos.html` check when the websocket becomes silent
+
 #### 4. Single-active vs multi-active games
 
 The behavior is designed not to break multi-active games.
@@ -333,6 +342,7 @@ For each watched table:
 - it edits that message while the waiting list shrinks
 - it deletes that message when the turn is over
 - it creates a new message for the next turn
+- if the BGA game is detected as finished, it deletes the last active message and automatically removes the watch
 
 On bot startup:
 - it removes old bot messages linked to each watched table in the channel
@@ -362,6 +372,7 @@ Responsibilities:
 - validate Discord permissions
 - parse table URLs
 - store watches and Discord/BGA links
+- trigger an immediate monitor refresh after `/bga watch`, `/bga unwatch`, and `/bga unwatch-all`
 
 #### `database.py`
 
@@ -378,6 +389,7 @@ Responsibilities:
 - extract useful HTML bootstrap data
 - open and maintain the public BGA websocket connection
 - parse websocket messages
+- detect end-of-game transitions from the websocket or from `tableinfos.html`
 - produce `BgaNotificationState` objects
 
 #### `monitor.py`
@@ -387,6 +399,7 @@ Responsibilities:
 - compare old and new states
 - decide when to create, update, or delete Discord messages
 - clean old messages on startup
+- automatically delete the active message and remove the watch when a game is over
 
 #### `utils.py`
 

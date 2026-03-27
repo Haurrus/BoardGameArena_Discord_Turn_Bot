@@ -1,16 +1,17 @@
-# Bot Discord BGA self-host
+﻿# Bot Discord BGA self-host
 
 [English version](README.en.md)
 
 Bot Discord self-host pour Board Game Arena.
 
-Le bot surveille des tables BGA publiques en mode spectateur, sans cookies ni login BGA, puis publie dans Discord un message de statut par table surveillée.
+Le bot surveille des tables BGA publiques en mode spectateur, sans cookies ni login BGA, puis publie dans Discord un message de statut par table surveillee.
 
 Le workflow cible est simple :
 - tu lies manuellement un membre Discord a son `bga_player_id`
 - tu ajoutes une table BGA avec `/bga watch <url_complete>`
 - le bot detecte qui doit jouer
 - il cree, met a jour, supprime puis recree les messages Discord au rythme des tours
+- quand la partie est terminee, il supprime le dernier message actif et retire automatiquement la watch
 
 ## 1. Deploiement
 
@@ -62,7 +63,7 @@ LOG_LEVEL=INFO
 
 - `DISCORD_TOKEN` : token du bot Discord
 - `DISCORD_GUILD_ID` : optionnel, permet une synchro quasi immediate des slash commands sur un serveur precis
-- `BGA_POLL_SECONDS` : rythme de supervision des workers de table cote bot
+- `BGA_POLL_SECONDS` : rythme de supervision du scheduler du monitor
 - `BGA_DB_PATH` : chemin du fichier SQLite
 - `BGA_WS_URL` : endpoint websocket public BGA
 - `LOG_LEVEL` : niveau de logs console
@@ -175,6 +176,7 @@ Regles :
 - la commande attend une URL complete publique de table
 - le bot extrait `table_id`, `gameserver` et `game_name` depuis l'URL
 - la watch est associee au serveur et au salon courant
+- le worker websocket est demarre immediatement apres la commande, sans attendre le prochain cycle du scheduler
 
 ### `/bga unwatch`
 
@@ -315,6 +317,13 @@ Le bot reconstruit l'etat des joueurs attendus (`waiting_ids`) avec cet ordre de
 3. `yourturnack` comme fallback leger
 4. heuristiques publiques limitees sur certains evenements (`beginTurn`, `endPrivateAction`, etc.)
 
+Pour detecter la fin d'une partie, le bot utilise en plus :
+
+1. `tableInfosChanged` avec `status = finished`
+2. `tableInfosChanged.reload_reason = tableDestroy`
+3. les evenements de fin visibles dans le flux (`End of game`, `simpleNote`, `simpleNode`)
+4. un controle de secours sur `tableinfos.html` quand le websocket devient silencieux
+
 #### 4. Difference mono-actif / multi-actif
 
 Le comportement a ete pense pour ne pas casser les jeux multi-actifs.
@@ -333,6 +342,7 @@ Pour chaque table surveillee :
 - il edite ce message tant que la liste des joueurs attendus se reduit
 - il supprime ce message quand le tour est fini
 - il cree un nouveau message au tour suivant
+- si la partie BGA est detectee comme terminee, il supprime le dernier message actif et retire automatiquement la watch
 
 Au demarrage du bot :
 - il nettoie les anciens messages du bot lies a chaque table surveillee dans le salon
@@ -362,6 +372,7 @@ Responsabilites :
 - valide les permissions Discord
 - parse les URLs de table
 - enregistre les watches et les liens Discord/BGA
+- declenche un rafraichissement immediat du monitor apres `/bga watch`, `/bga unwatch` et `/bga unwatch-all`
 
 #### `database.py`
 
@@ -378,6 +389,7 @@ Responsabilites :
 - extrait le bootstrap HTML utile
 - ouvre et maintient la connexion websocket publique BGA
 - parse les messages websocket
+- detecte les fins de partie via websocket ou via `tableinfos.html`
 - produit des objets `BgaNotificationState`
 
 #### `monitor.py`
@@ -387,6 +399,7 @@ Responsabilites :
 - compare l'ancien et le nouvel etat
 - decide quand creer, modifier ou supprimer les messages Discord
 - nettoie les anciens messages au demarrage
+- supprime automatiquement le message actif et la watch quand la partie est terminee
 
 #### `utils.py`
 
@@ -414,4 +427,3 @@ python bot.py
 ```
 
 Adapte seulement l'activation du venv et la commande de copie si ton shell utilise une syntaxe differente.
-
