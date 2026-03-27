@@ -1,5 +1,7 @@
 # Bot Discord BGA self-host
 
+[English version](README.en.md)
+
 Bot Discord self-host pour Board Game Arena.
 
 Le bot surveille des tables BGA publiques en mode spectateur, sans cookies ni login BGA, puis publie dans Discord un message de statut par table surveillée.
