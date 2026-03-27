@@ -2,7 +2,7 @@
 
 Bot Discord self-host pour Board Game Arena.
 
-Le bot surveille des tables BGA publiques en mode spectateur, sans cookies ni login BGA, puis publie dans Discord un message de statut par table surveillée.
+Le bot surveille des tables BGA publiques en mode spectateur, sans cookies ni login BGA, puis publie dans Discord un message de statut par table surveillÃ©e.
 
 Le workflow cible est simple :
 - tu lies manuellement un membre Discord a son `bga_player_id`
@@ -14,7 +14,6 @@ Le workflow cible est simple :
 
 ### Prerequis
 
-- Windows avec PowerShell
 - Python 3.11 ou plus recent recommande
 - un bot Discord cree dans le portail developpeur Discord
 - le bot invite sur ton serveur Discord
@@ -37,12 +36,14 @@ Le workflow cible est simple :
 
 Depuis le dossier du projet :
 
-```powershell
+```bash
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+source .venv/bin/activate
 pip install -r requirements.txt
-Copy-Item .env.example .env
+cp .env.example .env
 ```
+
+Adapte simplement les commandes d'activation de l'environnement virtuel et de copie de fichier a ton shell.
 
 Edite ensuite `.env` :
 
@@ -76,8 +77,8 @@ LOG_LEVEL=INFO
 
 ### Lancement
 
-```powershell
-python .\bot.py
+```bash
+python bot.py
 ```
 
 Si `DISCORD_GUILD_ID` est renseigne, les slash commands seront synchronisees sur cette guilde. Sinon, elles seront synchronisees globalement, ce qui peut prendre plus de temps.
@@ -402,10 +403,13 @@ Responsabilites :
 
 ## Commande de lancement rapide
 
-```powershell
+```bash
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+source .venv/bin/activate
 pip install -r requirements.txt
-Copy-Item .env.example .env
-python .\bot.py
+cp .env.example .env
+python bot.py
 ```
+
+Adapte seulement l'activation du venv et la commande de copie si ton shell utilise une syntaxe differente.
+
