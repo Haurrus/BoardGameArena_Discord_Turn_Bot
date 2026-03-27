@@ -8,15 +8,17 @@ from discord.ext import commands
 
 from bga_client import BgaClient, BgaClientError, BgaNotPublicError
 from database import Database
+from monitor import BgaMonitor
 from utils import build_table_url, format_game_name, parse_public_table_url, parse_table_id
 
 
 class BgaCommands(commands.Cog):
     bga = app_commands.Group(name="bga", description="Commandes Board Game Arena")
 
-    def __init__(self, database: Database, bga_client: BgaClient) -> None:
+    def __init__(self, database: Database, bga_client: BgaClient, monitor: BgaMonitor) -> None:
         self.database = database
         self.bga_client = bga_client
+        self.monitor = monitor
 
     @staticmethod
     def _has_manage_permissions(interaction: discord.Interaction) -> bool:
@@ -167,10 +169,28 @@ class BgaCommands(commands.Cog):
             created_by_discord_user_id=str(interaction.user.id),
             game_name=game_name,
         )
+        persisted_player_names = dict(subscription.player_names)
+        persisted_player_names.update(state.player_names)
+        self.database.update_watch_state(
+            subscription_id=subscription.subscription_id,
+            last_packet_id=subscription.last_packet_id,
+            waiting_ids=subscription.last_waiting_ids,
+            player_names=persisted_player_names,
+            is_initialized=subscription.is_initialized,
+            game_name=game_name,
+        )
         linked_users = self.database.get_linked_users_by_bga_ids(list(state.player_names.keys()))
-        linked_mentions = ", ".join(f"<@{item.discord_user_id}>" for item in linked_users)
-        if not linked_mentions:
-            linked_mentions = "aucun joueur lie pour l'instant"
+        linked_by_bga_id = {item.bga_player_id: item for item in linked_users}
+        detected_players = []
+        for player_id, player_name in sorted(state.player_names.items()):
+            linked_user = linked_by_bga_id.get(player_id)
+            if linked_user is not None:
+                detected_players.append(
+                    f"<@{linked_user.discord_user_id}> {player_name} ({player_id})"
+                )
+            else:
+                detected_players.append(f"{player_name} ({player_id})")
+        detected_players_text = ", ".join(detected_players) or "aucun joueur detecte pour l'instant"
         init_status = (
             "deja actif"
             if subscription.is_initialized
@@ -184,12 +204,13 @@ class BgaCommands(commands.Cog):
                 f"Table : `{table_id}`\n"
                 f"Salon : <#{interaction.channel_id}>\n"
                 f"Source publique initiale : `{state.source}`\n"
-                f"Joueurs lies actuellement detectes : {linked_mentions}\n"
+                f"Joueurs detectes actuellement : {detected_players_text}\n"
                 f"URL : {table_url}\n"
                 f"Etat d'initialisation : {init_status}"
             ),
             ephemeral=True,
         )
+        await self.monitor.refresh_now()
 
     @bga.command(name="unwatch", description="Retire une table BGA surveillee dans ce salon")
     @app_commands.describe(table_or_url="ID de table BGA ou URL complete")
@@ -223,6 +244,7 @@ class BgaCommands(commands.Cog):
             f"Watch supprimee pour la table `{table_id}` dans ce salon.",
             ephemeral=True,
         )
+        await self.monitor.refresh_now()
 
     @bga.command(name="unwatch-all", description="Supprime toutes les watches BGA du serveur courant")
     async def unwatch_all(self, interaction: discord.Interaction) -> None:
@@ -252,6 +274,7 @@ class BgaCommands(commands.Cog):
             f"{removed_count} watch(es) BGA supprimee(s) sur ce serveur.",
             ephemeral=True,
         )
+        await self.monitor.refresh_now()
 
     @bga.command(name="watchlist", description="Affiche les tables surveillees sur ce serveur")
     async def watchlist(self, interaction: discord.Interaction) -> None:

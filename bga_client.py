@@ -187,10 +187,12 @@ class BgaClient:
                     source=bootstrap_state.source,
                     details=bootstrap_state.details,
                 )
+                if bootstrap_state.player_names:
+                    known_player_names = dict(bootstrap_state.player_names)
+                    yield bootstrap_state
                 if bootstrap_state.waiting_ids is not None and bootstrap_state.waiting_ids != current_waiting_ids:
                     current_waiting_ids = list(bootstrap_state.waiting_ids)
                     known_player_names = dict(bootstrap_state.player_names)
-                    yield bootstrap_state
 
             initial_states = self._extract_states_from_items(
                 items=pending_items,
@@ -269,22 +271,61 @@ class BgaClient:
 
     @classmethod
     def _extract_initial_state_from_html(cls, html: str) -> BgaNotificationState | None:
+        player_names = cls._extract_player_names_from_html(html)
         gamestate_match = cls._GAMESTATE_PATTERN.search(html)
         if not gamestate_match:
+            if player_names:
+                return BgaNotificationState(
+                    highest_packet_id=None,
+                    waiting_ids=None,
+                    player_names=player_names,
+                    source="page_bootstrap_players",
+                    details={"bootstrap": "players_only"},
+                )
             return None
 
         state_id = gamestate_match.group("state_id").strip()
         active_player = gamestate_match.group("active_player").strip()
         if not active_player.isdigit():
+            if player_names:
+                return BgaNotificationState(
+                    highest_packet_id=None,
+                    waiting_ids=None,
+                    player_names=player_names,
+                    source="page_bootstrap_players",
+                    details={"bootstrap": "players_only", "state_id": state_id},
+                )
             return None
 
         state_type = cls._extract_gamestate_type(html, state_id)
         if state_type is None or state_type == "multipleactiveplayer":
+            if player_names:
+                details: dict[str, str] = {"bootstrap": "players_only", "state_id": state_id}
+                if state_type is not None:
+                    details["state_type"] = state_type
+                return BgaNotificationState(
+                    highest_packet_id=None,
+                    waiting_ids=None,
+                    player_names=player_names,
+                    source="page_bootstrap_players",
+                    details=details,
+                )
             return None
         if state_type not in {"activeplayer", "private", "manager"}:
+            if player_names:
+                return BgaNotificationState(
+                    highest_packet_id=None,
+                    waiting_ids=None,
+                    player_names=player_names,
+                    source="page_bootstrap_players",
+                    details={
+                        "bootstrap": "players_only",
+                        "state_id": state_id,
+                        "state_type": state_type,
+                    },
+                )
             return None
 
-        player_names = cls._extract_player_names_from_html(html)
         return BgaNotificationState(
             highest_packet_id=None,
             waiting_ids=[active_player],

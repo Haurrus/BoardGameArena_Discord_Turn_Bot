@@ -50,6 +50,12 @@ class BgaMonitor:
 
     @tasks.loop(seconds=30)
     async def sync_tables(self) -> None:
+        await self._sync_tables_once()
+
+    async def refresh_now(self) -> None:
+        await self._sync_tables_once()
+
+    async def _sync_tables_once(self) -> None:
         subscriptions = self.database.list_watch_subscriptions()
         active_table_ids = {subscription.table_id for subscription in subscriptions}
         active_subscription_ids = {subscription.subscription_id for subscription in subscriptions}
@@ -515,9 +521,8 @@ class BgaMonitor:
         linked_users_by_bga_id: dict[str, LinkedUser],
     ) -> str:
         linked_user = linked_users_by_bga_id.get(player_id)
-        player_reference = cls._format_player_reference(player_id, player_names)
         if linked_user is None:
-            return player_reference
+            return cls._format_player_reference(player_id, player_names)
         return f"<@{linked_user.discord_user_id}> {linked_user.bga_player_name} ({linked_user.bga_player_id})"
 
     @staticmethod

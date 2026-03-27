@@ -39,10 +39,14 @@ class BgaDiscordBot(commands.Bot):
         self.dev_guild_id = dev_guild_id
         self.monitor = BgaMonitor(self, database, bga_client, poll_seconds)
         self.logger = logging.getLogger(__name__)
+        self._startup_completed = False
 
     async def setup_hook(self) -> None:
-        await self.add_cog(BgaCommands(self.database, self.bga_client))
-        self.monitor.start()
+        await self.add_cog(BgaCommands(self.database, self.bga_client, self.monitor))
+
+    async def on_ready(self) -> None:
+        if self._startup_completed:
+            return
 
         if self.dev_guild_id is not None:
             guild = discord.Object(id=self.dev_guild_id)
@@ -53,10 +57,12 @@ class BgaDiscordBot(commands.Bot):
                 self.dev_guild_id,
                 len(synced),
             )
-            return
+        else:
+            synced = await self.tree.sync()
+            self.logger.info("Slash commands globales synchronisees (%s commandes).", len(synced))
 
-        synced = await self.tree.sync()
-        self.logger.info("Slash commands globales synchronisees (%s commandes).", len(synced))
+        self.monitor.start()
+        self._startup_completed = True
 
     async def close(self) -> None:
         self.monitor.stop()
