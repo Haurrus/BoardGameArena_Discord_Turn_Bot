@@ -107,6 +107,13 @@ class BgaMonitor:
                 if not did_cleanup:
                     await self._cleanup_stale_table_messages(subscriptions, table_id)
                     did_cleanup = True
+                finished_publicly = await asyncio.to_thread(
+                    self.bga_client.fetch_public_table_finished_status,
+                    table_info,
+                )
+                if finished_publicly:
+                    await self._finalize_finished_table(subscriptions, table_id)
+                    return
                 current_waiting_ids = self._select_previous_waiting_ids(subscriptions)
                 known_player_names = self._merge_player_names(subscriptions)
 
@@ -138,6 +145,11 @@ class BgaMonitor:
     async def _apply_table_state(self, table_id: str, fallback_game_name: str, state) -> None:
         subscriptions = self._subscriptions_for_table(table_id)
         if not subscriptions:
+            return
+
+        if state.is_game_finished:
+            LOGGER.info("Table %s detectee comme terminee par le flux public.", table_id)
+            await self._finalize_finished_table(subscriptions, table_id)
             return
 
         table_packet_id = state.highest_packet_id or max(item.last_packet_id for item in subscriptions)
@@ -217,6 +229,31 @@ class BgaMonitor:
                 is_initialized=True,
                 game_name=game_name,
             )
+
+    async def _finalize_finished_table(
+        self,
+        subscriptions: list[WatchSubscription],
+        table_id: str,
+    ) -> None:
+        for subscription in subscriptions:
+            active_message = self._active_turn_messages.get(subscription.subscription_id)
+            if active_message is not None:
+                deleted = await self._delete_turn_message(
+                    subscription=subscription,
+                    active_message=active_message,
+                    table_id=table_id,
+                )
+                if deleted:
+                    self._active_turn_messages.pop(subscription.subscription_id, None)
+
+            self.database.remove_watch_subscription(
+                table_id=subscription.table_id,
+                guild_id=subscription.guild_id,
+                channel_id=subscription.channel_id,
+            )
+
+        self._table_tasks.pop(table_id, None)
+        LOGGER.info("Watchs supprimees automatiquement pour la table terminee %s.", table_id)
 
     async def _handle_waiting_ids_transition(
         self,

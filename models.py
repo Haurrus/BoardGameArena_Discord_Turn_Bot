@@ -43,3 +43,4 @@ class BgaNotificationState:
     player_names: dict[str, str] = field(default_factory=dict)
     source: str = "unchanged"
     details: dict[str, str] = field(default_factory=dict)
+    is_game_finished: bool = False

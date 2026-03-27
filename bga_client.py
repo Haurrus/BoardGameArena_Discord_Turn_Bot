@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -39,10 +40,24 @@ class BgaClient:
         r'globalThis\.gameui\.completesetup\(\s*"(?P<game_name>[^"]+)"\s*,\s*"(?P<game_label>[^"]+)"\s*,\s*(?P<table_id>\d+)\s*,\s*(?P<user_id>-?\d+)\s*,\s*(?:/\*archivemask_begin\*/)?"(?P<credentials>[0-9a-fA-F]{32,64})"',
         re.DOTALL,
     )
-    _PLAYER_ENTRY_PATTERN = re.compile(
-        r'"(?P<player_id>\d+)":\{"id":"(?P=player_id)".{0,200}?"name":"(?P<player_name>[^"]+)"',
-        re.DOTALL,
-    )
+    _PLAYER_ENTRY_PATTERNS = [
+        re.compile(
+            r'"(?P<player_id>\d+)":\{.*?"id":"(?P=player_id)".*?"name":"(?P<player_name>[^"]+)"',
+            re.DOTALL,
+        ),
+        re.compile(
+            r'"id":"(?P<player_id>\d+)".{0,4000}?"name":"(?P<player_name>[^"]+)"',
+            re.DOTALL,
+        ),
+        re.compile(
+            r'"player_id":"?(?P<player_id>\d+)"?.{0,2000}?"player_name":"(?P<player_name>[^"]+)"',
+            re.DOTALL,
+        ),
+        re.compile(
+            r'"player_name":"(?P<player_name>[^"]+)".{0,2000}?"player_id":"?(?P<player_id>\d+)"?',
+            re.DOTALL,
+        ),
+    ]
     _GAMESTATE_PATTERN = re.compile(
         r'"gamestate":\{"id":(?P<state_id>\d+).*?"active_player":"(?P<active_player>\d+)"',
         re.DOTALL,
@@ -97,6 +112,59 @@ class BgaClient:
             game_name=game_name,
         )
 
+    def fetch_public_table_finished_status(self, table_info: BgaTableInfo) -> bool | None:
+        endpoint = (
+            f"{table_info.base_url}/table/table/tableinfos.html"
+            f"?id={table_info.table_id}&nosuggest=true&table={table_info.table_id}"
+            f"&noerrortracking=true&dojo.preventCache={int(time.time() * 1000)}"
+        )
+        try:
+            response = self._http.get(endpoint, timeout=self.timeout)
+        except requests.RequestException as exc:
+            raise BgaClientError(f"Impossible de charger tableinfos pour la table {table_info.table_id}: {exc}") from exc
+
+        if response.status_code >= 400:
+            raise BgaClientError(
+                f"tableinfos public renvoie HTTP {response.status_code} pour la table {table_info.table_id}."
+            )
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise BgaClientError(f"tableinfos public n'est pas un JSON valide pour la table {table_info.table_id}.") from exc
+
+        if not isinstance(payload, dict):
+            return None
+        if str(payload.get("status")) != "1":
+            return None
+
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return None
+        status_value = str(data.get("status") or "").strip().lower()
+        result = data.get("result")
+        result_dict = result if isinstance(result, dict) else {}
+        endgame_reason = str(result_dict.get("endgame_reason") or "").strip()
+        time_end = str(result_dict.get("time_end") or "").strip()
+        cancelled = str(data.get("cancelled") or "").strip()
+
+        is_finished = (
+            status_value == "finished"
+            or bool(endgame_reason)
+            or bool(time_end)
+            or cancelled == "1"
+        )
+        LOGGER.info(
+            "Tableinfos %s | status=%s | cancelled=%s | time_end=%s | endgame_reason=%s | finished=%s",
+            table_info.table_id,
+            status_value or "n/a",
+            cancelled or "n/a",
+            time_end or "n/a",
+            endgame_reason or "n/a",
+            is_finished,
+        )
+        return is_finished
+
     async def probe_public_table(
         self,
         table_info: BgaTableInfo,
@@ -144,6 +212,7 @@ class BgaClient:
                     player_names=known_names,
                     source="websocket_subscribed",
                     details={"probe": "subscribed_without_immediate_publication"},
+                    is_game_finished=False,
                 )
 
             states = self._extract_states_from_frame(
@@ -159,6 +228,7 @@ class BgaClient:
                 player_names=known_names,
                 source="websocket_subscribed",
                 details={"probe": "no_state_in_first_publication"},
+                is_game_finished=False,
             )
 
     async def watch_table(
@@ -207,7 +277,23 @@ class BgaClient:
 
             while True:
                 try:
-                    message = await self._recv_message(websocket)
+                    message = await asyncio.wait_for(self._recv_message(websocket), timeout=30)
+                except asyncio.TimeoutError:
+                    finished_publicly = await asyncio.to_thread(
+                        self.fetch_public_table_finished_status,
+                        table_info,
+                    )
+                    if finished_publicly:
+                        yield BgaNotificationState(
+                            highest_packet_id=None,
+                            waiting_ids=[],
+                            player_names=dict(known_player_names),
+                            source="table_finished_poll",
+                            details={"probe": "idle_tableinfos_status"},
+                            is_game_finished=True,
+                        )
+                        return
+                    continue
                 except ConnectionClosed as exc:
                     raise BgaClientError(f"Connexion websocket fermee: {exc}") from exc
 
@@ -281,6 +367,7 @@ class BgaClient:
                     player_names=player_names,
                     source="page_bootstrap_players",
                     details={"bootstrap": "players_only"},
+                    is_game_finished=False,
                 )
             return None
 
@@ -294,6 +381,7 @@ class BgaClient:
                     player_names=player_names,
                     source="page_bootstrap_players",
                     details={"bootstrap": "players_only", "state_id": state_id},
+                    is_game_finished=False,
                 )
             return None
 
@@ -309,6 +397,7 @@ class BgaClient:
                     player_names=player_names,
                     source="page_bootstrap_players",
                     details=details,
+                    is_game_finished=False,
                 )
             return None
         if state_type not in {"activeplayer", "private", "manager"}:
@@ -323,6 +412,7 @@ class BgaClient:
                         "state_id": state_id,
                         "state_type": state_type,
                     },
+                    is_game_finished=False,
                 )
             return None
 
@@ -332,6 +422,7 @@ class BgaClient:
             player_names=player_names,
             source="page_bootstrap_active_player",
             details={"state_id": state_id, "state_type": state_type},
+            is_game_finished=False,
         )
 
     @classmethod
@@ -352,11 +443,13 @@ class BgaClient:
     @classmethod
     def _extract_player_names_from_html(cls, html: str) -> dict[str, str]:
         player_names: dict[str, str] = {}
-        for match in cls._PLAYER_ENTRY_PATTERN.finditer(html):
-            player_id = match.group("player_id").strip()
-            player_name = match.group("player_name").strip()
-            if player_id and player_name:
-                player_names[player_id] = player_name
+        for candidate in (html, html.replace('\\"', '"')):
+            for pattern in cls._PLAYER_ENTRY_PATTERNS:
+                for match in pattern.finditer(candidate):
+                    player_id = match.group("player_id").strip()
+                    player_name = match.group("player_name").strip()
+                    if player_id and player_name and not player_name.startswith("Visitor-"):
+                        player_names[player_id] = player_name
         return player_names
 
     async def _connect_and_subscribe(
@@ -455,6 +548,7 @@ class BgaClient:
             player_names=player_names,
             source="presence",
             details={"probe": "presence_snapshot"},
+            is_game_finished=False,
         )
 
     async def _send_command_and_wait(
@@ -654,6 +748,53 @@ class BgaClient:
                 details = {"heuristic": "end_private_action"}
                 continue
 
+            if event_type == "tableInfosChanged" and isinstance(event_args, dict):
+                status_value = str(event_args.get("status") or "").strip().lower()
+                reload_reason = str(event_args.get("reload_reason") or "").strip()
+                result_payload = event_args.get("result")
+                result_dict = result_payload if isinstance(result_payload, dict) else {}
+                endgame_reason = str(result_dict.get("endgame_reason") or "").strip()
+                time_end = str(result_dict.get("time_end") or "").strip()
+                if (
+                    status_value == "finished"
+                    or reload_reason == "tableDestroy"
+                    or bool(endgame_reason)
+                    or bool(time_end)
+                ):
+                    waiting_ids = []
+                    source = "game_finished"
+                    details = {
+                        "event_type": event_type,
+                        "reload_reason": reload_reason or "n/a",
+                        "status": status_value or "n/a",
+                    }
+                    return [
+                        BgaNotificationState(
+                            highest_packet_id=packet_id,
+                            waiting_ids=waiting_ids,
+                            player_names=player_names,
+                            source=source,
+                            details=details,
+                            is_game_finished=True,
+                        )
+                    ]
+
+            event_log = str(event.get("log") or "").strip().lower()
+            if event_type.lower() in {"simplenode", "simplenote"} and "end of game" in event_log:
+                waiting_ids = []
+                source = "game_finished"
+                details = {"event_type": event_type}
+                return [
+                    BgaNotificationState(
+                        highest_packet_id=packet_id,
+                        waiting_ids=waiting_ids,
+                        player_names=player_names,
+                        source=source,
+                        details=details,
+                        is_game_finished=True,
+                    )
+                ]
+
         if source is None:
             return []
 
@@ -664,6 +805,7 @@ class BgaClient:
                 player_names=player_names,
                 source=source,
                 details=details,
+                is_game_finished=False,
             )
         ]
 
