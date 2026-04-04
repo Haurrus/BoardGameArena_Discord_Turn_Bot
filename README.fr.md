@@ -15,6 +15,30 @@ Le workflow cible est simple :
 - il cree, met a jour, supprime puis recree les messages Discord au rythme des tours
 - quand la partie est terminee, il supprime le dernier message actif et retire automatiquement la watch
 
+## Demarrage rapide
+
+Renseigne `DISCORD_TOKEN` dans `.env`, puis lance le bot.
+
+### Windows PowerShell
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
+python bot.py
+```
+
+### Linux / macOS
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python bot.py
+```
+
 ## 1. Deploiement
 
 ### Prerequis
@@ -445,15 +469,3 @@ Responsabilites :
 - les warnings Discord lies a la voix (`PyNaCl`, `davey`) ne sont pas bloquants pour ce projet
 - le warning `message content intent` n'est pas bloquant ici car le bot repose sur des slash commands
 - les noms de jeux affiches viennent du slug BGA ou du bootstrap public, donc ils ne sont pas toujours joliment formates
-
-## Commande de lancement rapide
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python bot.py
-```
-
-Adapte seulement l'activation du venv et la commande de copie si ton shell utilise une syntaxe differente.

@@ -15,6 +15,30 @@ Target workflow:
 - it creates, updates, deletes, then recreates Discord messages as turns evolve
 - when the game is over, it removes the last active message and automatically removes the watch
 
+## Quick start
+
+Set `DISCORD_TOKEN` in `.env`, then start the bot.
+
+### Windows PowerShell
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
+python bot.py
+```
+
+### Linux / macOS
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python bot.py
+```
+
 ## 1. Deployment
 
 ### Requirements
@@ -445,15 +469,3 @@ Responsibilities:
 - Discord voice warnings (`PyNaCl`, `davey`) are not relevant for this project
 - the `message content intent` warning is not blocking here because the bot relies on slash commands
 - displayed game names come from the BGA slug or public bootstrap, so they are not always perfectly formatted
-
-## Quick start
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python bot.py
-```
-
-Adjust only the venv activation and file copy commands if your shell uses a different syntax.
