@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bga-turn-bot"
+version = "0.1.0"
+description = "Self-hosted Discord bot that watches public Board Game Arena tables in spectator mode."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+dependencies = [
+    "discord.py>=2.4.0,<3.0.0",
+    "python-dotenv>=1.0.1,<2.0.0",
+    "requests>=2.32.0,<3.0.0",
+    "websockets>=13.0,<16.0",
+]
+
+[project.scripts]
+bga-turn-bot = "bga_turn.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+bga_turn = ["schema.sql"]

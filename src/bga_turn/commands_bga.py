@@ -6,11 +6,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bga_client import BgaClient, BgaClientError, BgaNotPublicError
-from database import Database
-from i18n import tr
-from monitor import BgaMonitor
-from utils import build_table_url, format_game_name, parse_public_table_url, parse_table_id
+from .bga_client import BgaClient, BgaClientError, BgaNotPublicError
+from .database import Database
+from .i18n import tr
+from .monitor import BgaMonitor
+from .utils import build_table_url, format_game_name, parse_public_table_url, parse_table_id
 
 
 class BgaCommands(commands.Cog):
@@ -67,7 +67,8 @@ class BgaCommands(commands.Cog):
             bga_player_name=candidate_name,
         )
         linked_user = self.database.get_linked_user(str(member.id))
-        assert linked_user is not None
+        if linked_user is None:
+            raise RuntimeError("Failed to load the linked BGA user after saving it.")
         name_display = linked_user.bga_player_name or tr("link_missing_value_placeholder")
         id_display = linked_user.bga_player_id or tr("link_missing_value_placeholder")
         await interaction.response.send_message(

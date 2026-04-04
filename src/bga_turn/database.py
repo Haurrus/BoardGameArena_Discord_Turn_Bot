@@ -4,14 +4,14 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from models import LinkedUser, WatchSubscription
-from utils import json_dumps, json_loads_dict, json_loads_list, utc_now_iso
+from .models import LinkedUser, WatchSubscription
+from .utils import json_dumps, json_loads_dict, json_loads_list, utc_now_iso
 
 
 class Database:
-    def __init__(self, db_path: Path, schema_path: Path) -> None:
+    def __init__(self, db_path: Path, schema_sql: str) -> None:
         self.db_path = db_path
-        self.schema_path = schema_path
+        self.schema_sql = schema_sql
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._connection = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -19,9 +19,8 @@ class Database:
         self._connection.execute("PRAGMA foreign_keys = ON")
 
     def initialize(self) -> None:
-        schema_sql = self.schema_path.read_text(encoding="utf-8")
         with self._lock:
-            self._connection.executescript(schema_sql)
+            self._connection.executescript(self.schema_sql)
             self._ensure_watch_subscription_columns()
             self._ensure_watch_state_columns()
             self._migrate_legacy_watches_if_needed()
@@ -243,7 +242,8 @@ class Database:
                 """,
                 (table_id, guild_id, channel_id),
             ).fetchone()
-            assert row is not None
+            if row is None:
+                raise RuntimeError("Failed to fetch watch subscription after upsert.")
             subscription_id = int(row["subscription_id"])
             self._connection.execute(
                 """
@@ -260,7 +260,8 @@ class Database:
             )
             self._connection.commit()
         subscription = self.get_watch_subscription(subscription_id)
-        assert subscription is not None
+        if subscription is None:
+            raise RuntimeError("Failed to reload watch subscription after upsert.")
         return subscription
 
     def get_watch_subscription(self, subscription_id: int) -> WatchSubscription | None:

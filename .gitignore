@@ -8,3 +8,7 @@ __pycache__/
 *.sqlite
 *.sqlite3
 .pytest_cache/
+build/
+dist/
+*.egg-info/
+.coverage

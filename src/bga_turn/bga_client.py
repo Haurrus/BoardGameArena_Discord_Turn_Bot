@@ -12,9 +12,9 @@ import requests
 import websockets
 from websockets import ConnectionClosed
 
-from i18n import tr
-from models import BgaNotificationState, BgaTableInfo
-from utils import BASE_URL
+from .i18n import tr
+from .models import BgaNotificationState, BgaTableInfo
+from .utils import BASE_URL
 
 LOGGER = logging.getLogger(__name__)
 

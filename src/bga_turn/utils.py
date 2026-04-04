@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from i18n import tr
+from .i18n import tr
 
 BASE_URL = "https://boardgamearena.com"
 

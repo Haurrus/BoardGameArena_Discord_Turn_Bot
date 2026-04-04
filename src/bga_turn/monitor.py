@@ -7,11 +7,11 @@ from dataclasses import dataclass
 import discord
 from discord.ext import tasks
 
-from bga_client import BgaClient, BgaClientError, BgaNotPublicError
-from database import Database
-from i18n import tr
-from models import LinkedUser, WatchSubscription
-from utils import build_table_url, format_game_name
+from .bga_client import BgaClient, BgaClientError, BgaNotPublicError
+from .database import Database
+from .i18n import tr
+from .models import LinkedUser, WatchSubscription
+from .utils import build_table_url, format_game_name
 
 LOGGER = logging.getLogger(__name__)
 

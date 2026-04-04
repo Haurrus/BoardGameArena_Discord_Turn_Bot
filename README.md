@@ -24,9 +24,9 @@ Set `DISCORD_TOKEN` in `.env`, then start the bot.
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -e .
 Copy-Item .env.example .env
-python bot.py
+python -m bga_turn
 ```
 
 ### Linux / macOS
@@ -34,9 +34,9 @@ python bot.py
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install -e .
 cp .env.example .env
-python bot.py
+python -m bga_turn
 ```
 
 ## 1. Deployment
@@ -51,14 +51,18 @@ python bot.py
 ### Project structure
 
 - `bot.py`: Discord bot entry point
-- `commands_bga.py`: `/bga` slash commands
-- `bga_client.py`: public BGA networking, HTML parsing, websocket handling
-- `monitor.py`: watch loop and Discord publishing logic
-- `database.py`: SQLite persistence
-- `models.py`: domain dataclasses
-- `utils.py`: URL parsing, JSON helpers, small utilities
-- `schema.sql`: SQLite schema
-- `requirements.txt`: Python dependencies
+- `src/bga_turn/app.py`: application entry point
+- `src/bga_turn/commands_bga.py`: `/bga` slash commands
+- `src/bga_turn/bga_client.py`: public BGA networking, HTML parsing, websocket handling
+- `src/bga_turn/monitor.py`: watch loop and Discord publishing logic
+- `src/bga_turn/database.py`: SQLite persistence
+- `src/bga_turn/models.py`: domain dataclasses
+- `src/bga_turn/utils.py`: URL parsing, JSON helpers, small utilities
+- `src/bga_turn/schema.sql`: packaged SQLite schema
+- `pyproject.toml`: package metadata and console entry point
+- `requirements.txt`: lightweight bootstrap file for editable install
+- `LICENSE`: MIT license
+- `.github/workflows/ci.yml`: lightweight validation on push and pull request
 - `.env.example`: local configuration example
 
 ### Local installation
@@ -68,7 +72,7 @@ From the project directory:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install -e .
 cp .env.example .env
 ```
 
@@ -109,10 +113,16 @@ BOT_LANG=EN
 ### Run the bot
 
 ```bash
-python bot.py
+python -m bga_turn
 ```
 
+You can also keep using `python bot.py` from the repository root as a compatibility launcher.
+
 If `DISCORD_GUILD_ID` is set, slash commands are synced to that guild. Otherwise, they are synced globally, which may take longer.
+
+### License
+
+This repository is distributed under the MIT license. See `LICENSE`.
 
 ### SQLite database
 
@@ -407,7 +417,7 @@ This cleanup is targeted:
 
 ### Python architecture
 
-#### `bot.py`
+#### `src/bga_turn/app.py`
 
 Responsibilities:
 - load `.env`
@@ -418,7 +428,13 @@ Responsibilities:
 - start the Discord bot
 - sync slash commands
 
-#### `commands_bga.py`
+#### `bot.py`
+
+Responsibilities:
+- keep backward compatibility for `python bot.py` from the repository root
+- forward execution to the packaged application in `src/bga_turn`
+
+#### `src/bga_turn/commands_bga.py`
 
 Responsibilities:
 - expose `/bga` commands
@@ -428,7 +444,7 @@ Responsibilities:
 - support partial links and automatic enrichment
 - trigger an immediate monitor refresh after `/bga watch`, `/bga unwatch`, and `/bga unwatch-all`
 
-#### `database.py`
+#### `src/bga_turn/database.py`
 
 Responsibilities:
 - create and migrate the SQLite database
@@ -436,7 +452,7 @@ Responsibilities:
 - read and write watches
 - store the last known state per watch
 
-#### `bga_client.py`
+#### `src/bga_turn/bga_client.py`
 
 Responsibilities:
 - download the public table page
@@ -446,7 +462,7 @@ Responsibilities:
 - detect end-of-game transitions from the websocket or from `tableinfos.html`
 - produce `BgaNotificationState` objects
 
-#### `monitor.py`
+#### `src/bga_turn/monitor.py`
 
 Responsibilities:
 - start one websocket worker per watched table
@@ -455,7 +471,7 @@ Responsibilities:
 - clean old messages on startup
 - automatically delete the active message and remove the watch when a game is over
 
-#### `utils.py`
+#### `src/bga_turn/utils.py`
 
 Responsibilities:
 - parse BGA URLs
@@ -469,3 +485,4 @@ Responsibilities:
 - Discord voice warnings (`PyNaCl`, `davey`) are not relevant for this project
 - the `message content intent` warning is not blocking here because the bot relies on slash commands
 - displayed game names come from the BGA slug or public bootstrap, so they are not always perfectly formatted
+- the project currently ships without a unit test suite; validation is kept lightweight through packaging and compilation checks

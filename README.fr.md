@@ -24,9 +24,9 @@ Renseigne `DISCORD_TOKEN` dans `.env`, puis lance le bot.
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -e .
 Copy-Item .env.example .env
-python bot.py
+python -m bga_turn
 ```
 
 ### Linux / macOS
@@ -34,9 +34,9 @@ python bot.py
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install -e .
 cp .env.example .env
-python bot.py
+python -m bga_turn
 ```
 
 ## 1. Deploiement
@@ -50,15 +50,19 @@ python bot.py
 
 ### Structure du projet
 
-- `bot.py` : point d'entree du bot Discord
-- `commands_bga.py` : slash commands `/bga`
-- `bga_client.py` : acces reseau BGA public, parsing HTML + websocket
-- `monitor.py` : logique de surveillance et publication Discord
-- `database.py` : persistance SQLite
-- `models.py` : dataclasses metier
-- `utils.py` : parsing URL, JSON, helpers divers
-- `schema.sql` : schema SQLite
-- `requirements.txt` : dependances Python
+- `bot.py` : lanceur de compatibilite depuis la racine du depot
+- `src/bga_turn/app.py` : point d'entree principal de l'application
+- `src/bga_turn/commands_bga.py` : slash commands `/bga`
+- `src/bga_turn/bga_client.py` : acces reseau BGA public, parsing HTML + websocket
+- `src/bga_turn/monitor.py` : logique de surveillance et publication Discord
+- `src/bga_turn/database.py` : persistance SQLite
+- `src/bga_turn/models.py` : dataclasses metier
+- `src/bga_turn/utils.py` : parsing URL, JSON, helpers divers
+- `src/bga_turn/schema.sql` : schema SQLite embarque dans le package
+- `pyproject.toml` : metadata du package et point d'entree console
+- `requirements.txt` : fichier bootstrap leger pour installation editable
+- `LICENSE` : licence MIT
+- `.github/workflows/ci.yml` : validation legere sur les pushes et pull requests
 - `.env.example` : exemple de configuration locale
 
 ### Installation locale
@@ -68,7 +72,7 @@ Depuis le dossier du projet :
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install -e .
 cp .env.example .env
 ```
 
@@ -109,10 +113,16 @@ BOT_LANG=EN
 ### Lancement
 
 ```bash
-python bot.py
+python -m bga_turn
 ```
 
+Tu peux aussi continuer a utiliser `python bot.py` depuis la racine du depot comme lanceur de compatibilite.
+
 Si `DISCORD_GUILD_ID` est renseigne, les slash commands seront synchronisees sur cette guilde. Sinon, elles seront synchronisees globalement, ce qui peut prendre plus de temps.
+
+### Licence
+
+Ce depot est distribue sous licence MIT. Voir `LICENSE`.
 
 ### Base SQLite
 
@@ -407,7 +417,7 @@ Le nettoyage est cible :
 
 ### Architecture Python
 
-#### `bot.py`
+#### `src/bga_turn/app.py`
 
 Responsabilites :
 - charge `.env`
@@ -418,7 +428,13 @@ Responsabilites :
 - demarre le bot Discord
 - synchronise les slash commands
 
-#### `commands_bga.py`
+#### `bot.py`
+
+Responsabilites :
+- conserve la compatibilite avec `python bot.py` depuis la racine du depot
+- redirige l'execution vers l'application packagee dans `src/bga_turn`
+
+#### `src/bga_turn/commands_bga.py`
 
 Responsabilites :
 - expose les commandes `/bga`
@@ -428,7 +444,7 @@ Responsabilites :
 - autorise les liens partiels et leur enrichissement automatique
 - declenche un rafraichissement immediat du monitor apres `/bga watch`, `/bga unwatch` et `/bga unwatch-all`
 
-#### `database.py`
+#### `src/bga_turn/database.py`
 
 Responsabilites :
 - cree et migre la base SQLite
@@ -436,7 +452,7 @@ Responsabilites :
 - lit et ecrit les watches
 - conserve le dernier etat connu par watch
 
-#### `bga_client.py`
+#### `src/bga_turn/bga_client.py`
 
 Responsabilites :
 - telecharge la page publique de table
@@ -446,7 +462,7 @@ Responsabilites :
 - detecte les fins de partie via websocket ou via `tableinfos.html`
 - produit des objets `BgaNotificationState`
 
-#### `monitor.py`
+#### `src/bga_turn/monitor.py`
 
 Responsabilites :
 - lance un worker websocket par table surveillee
@@ -455,7 +471,7 @@ Responsabilites :
 - nettoie les anciens messages au demarrage
 - supprime automatiquement le message actif et la watch quand la partie est terminee
 
-#### `utils.py`
+#### `src/bga_turn/utils.py`
 
 Responsabilites :
 - parse les URLs BGA
@@ -469,3 +485,4 @@ Responsabilites :
 - les warnings Discord lies a la voix (`PyNaCl`, `davey`) ne sont pas bloquants pour ce projet
 - le warning `message content intent` n'est pas bloquant ici car le bot repose sur des slash commands
 - les noms de jeux affiches viennent du slug BGA ou du bootstrap public, donc ils ne sont pas toujours joliment formates
+- le projet est actuellement distribue sans suite de tests unitaires ; la validation reste volontairement legere via le packaging et la compilation
