@@ -12,7 +12,9 @@ import requests
 import websockets
 from websockets import ConnectionClosed
 
+from i18n import tr
 from models import BgaNotificationState, BgaTableInfo
+from utils import BASE_URL
 
 LOGGER = logging.getLogger(__name__)
 
@@ -112,35 +114,27 @@ class BgaClient:
             game_name=game_name,
         )
 
-    def fetch_public_table_finished_status(self, table_info: BgaTableInfo) -> bool | None:
-        endpoint = (
-            f"{table_info.base_url}/table/table/tableinfos.html"
-            f"?id={table_info.table_id}&nosuggest=true&table={table_info.table_id}"
-            f"&noerrortracking=true&dojo.preventCache={int(time.time() * 1000)}"
+    def resolve_public_table_info_from_id(self, table_id: str, base_url: str = BASE_URL) -> BgaTableInfo:
+        data = self._fetch_public_tableinfos_data(table_id=table_id, base_url=base_url)
+        game_name = str(data.get("game_name") or "").strip()
+        gameserver = str(data.get("gameserver") or "").strip()
+        if not game_name or not gameserver:
+            raise BgaClientError(tr("error_resolve_public_table_url", table_id=table_id))
+
+        normalized_url = f"{base_url}/{gameserver}/{game_name}?table={table_id}"
+        return self.build_public_table_info(
+            table_id=table_id,
+            table_url=normalized_url,
+            base_url=base_url,
+            gameserver=gameserver,
+            game_name=game_name,
         )
-        try:
-            response = self._http.get(endpoint, timeout=self.timeout)
-        except requests.RequestException as exc:
-            raise BgaClientError(f"Impossible de charger tableinfos pour la table {table_info.table_id}: {exc}") from exc
 
-        if response.status_code >= 400:
-            raise BgaClientError(
-                f"tableinfos public renvoie HTTP {response.status_code} pour la table {table_info.table_id}."
-            )
-
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise BgaClientError(f"tableinfos public n'est pas un JSON valide pour la table {table_info.table_id}.") from exc
-
-        if not isinstance(payload, dict):
-            return None
-        if str(payload.get("status")) != "1":
-            return None
-
-        data = payload.get("data")
-        if not isinstance(data, dict):
-            return None
+    def fetch_public_table_finished_status(self, table_info: BgaTableInfo) -> bool | None:
+        data = self._fetch_public_tableinfos_data(
+            table_id=table_info.table_id,
+            base_url=table_info.base_url,
+        )
         status_value = str(data.get("status") or "").strip().lower()
         result = data.get("result")
         result_dict = result if isinstance(result, dict) else {}
@@ -155,15 +149,46 @@ class BgaClient:
             or cancelled == "1"
         )
         LOGGER.info(
-            "Tableinfos %s | status=%s | cancelled=%s | time_end=%s | endgame_reason=%s | finished=%s",
-            table_info.table_id,
-            status_value or "n/a",
-            cancelled or "n/a",
-            time_end or "n/a",
-            endgame_reason or "n/a",
-            is_finished,
+            tr(
+                "tableinfos_status",
+                table_id=table_info.table_id,
+                status=status_value or "n/a",
+                cancelled=cancelled or "n/a",
+                time_end=time_end or "n/a",
+                endgame_reason=endgame_reason or "n/a",
+                finished=is_finished,
+            )
         )
         return is_finished
+
+    def _fetch_public_tableinfos_data(self, *, table_id: str, base_url: str) -> dict[str, Any]:
+        endpoint = (
+            f"{base_url}/table/table/tableinfos.html"
+            f"?id={table_id}&nosuggest=true&table={table_id}"
+            f"&noerrortracking=true&dojo.preventCache={int(time.time() * 1000)}"
+        )
+        try:
+            response = self._http.get(endpoint, timeout=self.timeout)
+        except requests.RequestException as exc:
+            raise BgaClientError(tr("error_load_tableinfos", table_id=table_id, error=exc)) from exc
+
+        if response.status_code >= 400:
+            raise BgaClientError(
+                tr("error_tableinfos_http", status_code=response.status_code, table_id=table_id)
+            )
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise BgaClientError(tr("error_tableinfos_invalid_json", table_id=table_id)) from exc
+
+        if not isinstance(payload, dict) or str(payload.get("status")) != "1":
+            raise BgaClientError(tr("error_tableinfos_unexpected", table_id=table_id))
+
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise BgaClientError(tr("error_tableinfos_missing_data", table_id=table_id))
+        return data
 
     async def probe_public_table(
         self,
@@ -291,11 +316,11 @@ class BgaClient:
                             source="table_finished_poll",
                             details={"probe": "idle_tableinfos_status"},
                             is_game_finished=True,
-                        )
+                    )
                         return
                     continue
                 except ConnectionClosed as exc:
-                    raise BgaClientError(f"Connexion websocket fermee: {exc}") from exc
+                    raise BgaClientError(tr("error_websocket_closed", error=exc)) from exc
 
                 states = self._extract_states_from_frame(
                     message=message,
@@ -312,17 +337,17 @@ class BgaClient:
         try:
             response = self._http.get(table_info.table_url, timeout=self.timeout)
         except requests.RequestException as exc:
-            raise BgaClientError(f"Impossible de charger la page publique {table_info.table_url}: {exc}") from exc
+            raise BgaClientError(
+                tr("error_load_public_page", table_url=table_info.table_url, error=exc)
+            ) from exc
 
         if response.status_code >= 400:
-            raise BgaNotPublicError(f"La page publique renvoie HTTP {response.status_code}.")
+            raise BgaNotPublicError(tr("error_public_page_http", status_code=response.status_code))
 
         html = response.text
         bootstrap = self._extract_spectator_bootstrap(html)
         if bootstrap is None:
-            raise BgaNotPublicError(
-                "Impossible d'extraire l'identite spectateur anonyme depuis la page publique."
-            )
+            raise BgaNotPublicError(tr("error_missing_spectator_bootstrap"))
         initial_state = self._extract_initial_state_from_html(html)
         return bootstrap, initial_state
 
@@ -567,9 +592,11 @@ class BgaClient:
             try:
                 raw_message = await asyncio.wait_for(self._recv_message(websocket), timeout=deadline)
             except asyncio.TimeoutError as exc:
-                raise BgaClientError(f"Timeout sur la commande websocket {command_id}.") from exc
+                raise BgaClientError(tr("error_websocket_command_timeout", command_id=command_id)) from exc
             except ConnectionClosed as exc:
-                raise BgaClientError(f"Connexion websocket fermee pendant la commande {command_id}: {exc}") from exc
+                raise BgaClientError(
+                    tr("error_websocket_command_closed", command_id=command_id, error=exc)
+                ) from exc
 
             for item in self._decode_frame(raw_message):
                 if item.get("id") == command_id:
@@ -819,7 +846,7 @@ class BgaClient:
             try:
                 value = json.loads(line)
             except json.JSONDecodeError:
-                LOGGER.debug("Trame websocket BGA ignoree car JSON invalide: %s", line)
+                LOGGER.debug(tr("invalid_json_frame", line=line))
                 continue
             if isinstance(value, dict):
                 items.append(value)

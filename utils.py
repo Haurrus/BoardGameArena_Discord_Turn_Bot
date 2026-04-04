@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from i18n import tr
+
 BASE_URL = "https://boardgamearena.com"
 
 
@@ -16,7 +18,7 @@ def utc_now_iso() -> str:
 def parse_table_id(value: str) -> str:
     candidate = value.strip()
     if not candidate:
-        raise ValueError("La valeur de table est vide.")
+        raise ValueError(tr("error_empty_table_value"))
     if candidate.isdigit():
         return candidate
 
@@ -30,35 +32,31 @@ def parse_table_id(value: str) -> str:
     if match:
         return match.group(1)
 
-    raise ValueError("Impossible d'extraire un ID de table BGA valide.")
+    raise ValueError(tr("error_invalid_table_id"))
 
 
 def parse_public_table_url(value: str) -> tuple[str, str, str, str, str]:
     candidate = value.strip()
     if not candidate:
-        raise ValueError("L'URL de table BGA est vide.")
+        raise ValueError(tr("error_empty_table_url"))
 
     parsed = urlparse(candidate)
     if not parsed.scheme or not parsed.netloc:
-        raise ValueError(
-            "Le mode zero auth exige une URL complete de table BGA, pas seulement un ID."
-        )
+        raise ValueError(tr("error_watch_requires_full_public_url"))
 
     table_values = parse_qs(parsed.query).get("table")
     if not table_values or not table_values[0].isdigit():
-        raise ValueError("L'URL BGA ne contient pas de parametre `table=<id>` valide.")
+        raise ValueError(tr("error_url_missing_table_param"))
     table_id = table_values[0]
 
     path_parts = [part for part in parsed.path.split("/") if part]
     if len(path_parts) < 2:
-        raise ValueError(
-            "L'URL BGA doit contenir le chemin public du jeu, par exemple /15/sevenwondersdice?table=..."
-        )
+        raise ValueError(tr("error_url_missing_public_path"))
 
     gameserver = path_parts[-2].strip()
     game_name = path_parts[-1].strip()
     if not gameserver or not game_name:
-        raise ValueError("Impossible d'extraire le gameserver et le nom du jeu depuis l'URL BGA.")
+        raise ValueError(tr("error_url_missing_game_path"))
 
     base_url = f"{parsed.scheme}://{parsed.netloc}"
     normalized_url = f"{base_url}/{gameserver}/{game_name}?table={table_id}"
@@ -105,5 +103,5 @@ def json_loads_dict(raw: str | None) -> dict[str, str]:
 
 def format_game_name(game_name: str | None) -> str:
     if not game_name:
-        return "Inconnu"
+        return tr("value_unknown").capitalize()
     return re.sub(r"[_-]+", " ", game_name).strip().title()

@@ -1,43 +1,45 @@
-﻿# Bot Discord BGA self-host
+﻿# BGA Discord self-host bot
 
-[English version](README.en.md)
+[Version francaise](README.fr.md)
 
-Bot Discord self-host pour Board Game Arena.
+Self-hosted Discord bot for Board Game Arena.
 
-Le bot surveille des tables BGA publiques en mode spectateur, sans cookies ni login BGA, puis publie dans Discord un message de statut par table surveillee.
+The bot watches public BGA tables in spectator mode, without cookies or BGA login, then posts a status message in Discord for each watched table.
 
-Le workflow cible est simple :
-- tu lies manuellement un membre Discord a son `bga_player_id`
-- tu ajoutes une table BGA avec `/bga watch <url_complete>`
-- le bot detecte qui doit jouer
-- il cree, met a jour, supprime puis recree les messages Discord au rythme des tours
-- quand la partie est terminee, il supprime le dernier message actif et retire automatiquement la watch
+Target workflow:
+- you manually link a Discord member with `/bga link-member @discord BgaName BgaId`
+- the link can be partial: name only, ID only, or both
+- the bot fills the missing field automatically when it observes a table
+- you add a BGA table with `/bga watch <full_url>` or `/bga watch <table_id>`
+- the bot detects whose turn it is
+- it creates, updates, deletes, then recreates Discord messages as turns evolve
+- when the game is over, it removes the last active message and automatically removes the watch
 
-## 1. Deploiement
+## 1. Deployment
 
-### Prerequis
+### Requirements
 
-- Python 3.11 ou plus recent recommande
-- un bot Discord cree dans le portail developpeur Discord
-- le bot invite sur ton serveur Discord
-- une ou plusieurs tables BGA accessibles publiquement en mode spectateur
+- Python 3.11 or newer recommended
+- a Discord bot created in the Discord developer portal
+- the bot invited to your Discord server
+- one or more BGA tables publicly accessible in spectator mode
 
-### Structure du projet
+### Project structure
 
-- `bot.py` : point d'entree du bot Discord
-- `commands_bga.py` : slash commands `/bga`
-- `bga_client.py` : acces reseau BGA public, parsing HTML + websocket
-- `monitor.py` : logique de surveillance et publication Discord
-- `database.py` : persistance SQLite
-- `models.py` : dataclasses metier
-- `utils.py` : parsing URL, JSON, helpers divers
-- `schema.sql` : schema SQLite
-- `requirements.txt` : dependances Python
-- `.env.example` : exemple de configuration locale
+- `bot.py`: Discord bot entry point
+- `commands_bga.py`: `/bga` slash commands
+- `bga_client.py`: public BGA networking, HTML parsing, websocket handling
+- `monitor.py`: watch loop and Discord publishing logic
+- `database.py`: SQLite persistence
+- `models.py`: domain dataclasses
+- `utils.py`: URL parsing, JSON helpers, small utilities
+- `schema.sql`: SQLite schema
+- `requirements.txt`: Python dependencies
+- `.env.example`: local configuration example
 
-### Installation locale
+### Local installation
 
-Depuis le dossier du projet :
+From the project directory:
 
 ```bash
 python -m venv .venv
@@ -46,64 +48,71 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Adapte simplement les commandes d'activation de l'environnement virtuel et de copie de fichier a ton shell.
+Adjust the virtual environment activation and file copy commands to your shell if needed.
 
-Edite ensuite `.env` :
+Then edit `.env`:
 
 ```env
-DISCORD_TOKEN=ton_token_bot
+DISCORD_TOKEN=your_bot_token
 DISCORD_GUILD_ID=
 BGA_POLL_SECONDS=15
 BGA_DB_PATH=bga_bot.db
 BGA_WS_URL=wss://ws-x1.boardgamearena.com/connection/websocket
 LOG_LEVEL=INFO
+BOT_LANG=EN
 ```
 
-### Signification des variables `.env`
+### `.env` variables
 
-- `DISCORD_TOKEN` : token du bot Discord
-- `DISCORD_GUILD_ID` : optionnel, permet une synchro quasi immediate des slash commands sur un serveur precis
-- `BGA_POLL_SECONDS` : rythme de supervision du scheduler du monitor
-- `BGA_DB_PATH` : chemin du fichier SQLite
-- `BGA_WS_URL` : endpoint websocket public BGA
-- `LOG_LEVEL` : niveau de logs console
+- `DISCORD_TOKEN`: Discord bot token
+- `DISCORD_GUILD_ID`: optional, enables near-instant slash command sync for one guild
+- `BGA_POLL_SECONDS`: supervision interval for the monitor scheduler
+- `BGA_DB_PATH`: SQLite file path
+- `BGA_WS_URL`: public BGA websocket endpoint
+- `LOG_LEVEL`: console log level
+- `BOT_LANG`: bot language for internal logs, slash command responses, and Discord messages, `EN` by default, `FR` for French
 
-### Creer et inviter le bot Discord
+### Create and invite the Discord bot
 
-1. Va sur `https://discord.com/developers/applications`
-2. Cree une application
-3. Va dans l'onglet `Bot`
-4. Recupere le token du bot et place-le dans `.env`
-5. Va dans `OAuth2 > URL Generator`
-6. Coche `bot` et `applications.commands`
-7. Invite le bot sur ton serveur
+1. Go to `https://discord.com/developers/applications`
+2. Create an application
+3. Open the `Bot` tab
+4. Copy the bot token into `.env`
+5. Open `OAuth2 > URL Generator`
+6. Check `bot` and `applications.commands`
+7. Invite the bot to your server
 
-### Lancement
+### Run the bot
 
 ```bash
 python bot.py
 ```
 
-Si `DISCORD_GUILD_ID` est renseigne, les slash commands seront synchronisees sur cette guilde. Sinon, elles seront synchronisees globalement, ce qui peut prendre plus de temps.
+If `DISCORD_GUILD_ID` is set, slash commands are synced to that guild. Otherwise, they are synced globally, which may take longer.
 
-### Base SQLite
+### SQLite database
 
-Le projet utilise SQLite avec 3 tables utiles.
+The project uses SQLite with 3 useful tables.
 
 #### `users`
 
-Associe un membre Discord a un joueur BGA.
+Maps a Discord member to a BGA player.
 
-Colonnes principales :
+A link can be partial:
+- `bga_player_id` can be empty
+- `bga_player_name` can be empty
+- logically, at least one of them must be provided
+
+Main columns:
 - `discord_user_id`
 - `bga_player_id`
 - `bga_player_name`
 
 #### `watch_subscriptions`
 
-Decrit les tables surveillees par serveur/salon.
+Describes watched tables per guild/channel.
 
-Colonnes principales :
+Main columns:
 - `subscription_id`
 - `table_id`
 - `table_url`
@@ -113,9 +122,9 @@ Colonnes principales :
 
 #### `watch_states`
 
-Conserve le dernier etat connu d'une surveillance.
+Stores the last known state for a watch.
 
-Colonnes principales :
+Main columns:
 - `subscription_id`
 - `last_packet_id`
 - `last_waiting_ids`
@@ -123,40 +132,54 @@ Colonnes principales :
 - `is_initialized`
 - `game_name`
 
-## 2. Commandes Discord
+## 2. Discord commands
 
-Toutes les commandes sont dans le groupe `/bga`.
+All commands are under the `/bga` group.
 
 ### `/bga link-member`
 
-Lie manuellement un membre Discord a un joueur BGA.
+Manually link a Discord member to a BGA player.
 
-Syntaxe :
+Syntax:
 
 ```text
-/bga link-member @Membre 91713763 Haurrus
+/bga link-member @Member Haurrus 91713763
 ```
 
-Usage :
-- necessite `Manage Server` ou `Administrator`
-- enregistre le mapping `Discord -> BGA`
-- sert ensuite pour les mentions dans les messages de tour
+or
+
+```text
+/bga link-member @Member Haurrus
+```
+
+or
+
+```text
+/bga link-member @Member "" 91713763
+```
+
+Usage:
+- requires `Manage Server` or `Administrator`
+- stores the `Discord -> BGA` mapping
+- accepts a partial link: name only, ID only, or both
+- the bot fills the missing field automatically when it recognizes the player on a watched table
+- used later for Discord mentions in turn messages
 
 ### `/bga unlink-member`
 
-Supprime le lien BGA d'un membre Discord.
+Remove the BGA link for a Discord member.
 
-Syntaxe :
+Syntax:
 
 ```text
-/bga unlink-member @Membre
+/bga unlink-member @Member
 ```
 
 ### `/bga linked`
 
-Affiche tous les membres Discord actuellement lies a un ID BGA.
+Show all Discord members currently linked to a BGA ID.
 
-Syntaxe :
+Syntax:
 
 ```text
 /bga linked
@@ -164,31 +187,37 @@ Syntaxe :
 
 ### `/bga watch`
 
-Ajoute une table BGA publique a surveiller dans le salon courant.
+Add a public BGA table to watch in the current channel.
 
-Syntaxe :
+Syntax:
 
 ```text
 /bga watch https://en.boardgamearena.com/15/sevenwondersdice?table=827248309
 ```
 
-Regles :
-- la commande attend une URL complete publique de table
-- le bot extrait `table_id`, `gameserver` et `game_name` depuis l'URL
-- la watch est associee au serveur et au salon courant
-- le worker websocket est demarre immediatement apres la commande, sans attendre le prochain cycle du scheduler
+or
+
+```text
+/bga watch 827248309
+```
+
+Rules:
+- the command accepts either a full public table URL or a plain table number
+- if only the table number is provided, the bot resolves the public table URL from `tableinfos`
+- the watch is attached to the current guild and channel
+- the websocket worker starts immediately after the command, without waiting for the next scheduler cycle
 
 ### `/bga unwatch`
 
-Supprime une watch pour la table dans le salon courant.
+Remove a watch for the table in the current channel.
 
-Syntaxe :
+Syntax:
 
 ```text
 /bga unwatch 827248309
 ```
 
-ou
+or
 
 ```text
 /bga unwatch https://en.boardgamearena.com/15/sevenwondersdice?table=827248309
@@ -196,23 +225,23 @@ ou
 
 ### `/bga unwatch-all`
 
-Supprime toutes les watches du serveur courant.
+Remove all watches from the current server.
 
-Syntaxe :
+Syntax:
 
 ```text
 /bga unwatch-all
 ```
 
-Usage :
-- necessite `Manage Server` ou `Administrator`
-- utile pour repartir proprement
+Usage:
+- requires `Manage Server` or `Administrator`
+- useful to reset everything cleanly
 
 ### `/bga watchlist`
 
-Affiche toutes les tables surveillees sur le serveur courant.
+Show all watched tables on the current server.
 
-Syntaxe :
+Syntax:
 
 ```text
 /bga watchlist
@@ -220,87 +249,87 @@ Syntaxe :
 
 ### `/bga status`
 
-Affiche l'etat connu des watches sur le serveur courant.
+Show the last known state of watched tables on the current server.
 
-Syntaxe :
+Syntax:
 
 ```text
 /bga status
 ```
 
-Affiche notamment :
+Displays, among other things:
 - table
-- salon
-- `waiting_ids` connus
-- etat interprete
+- channel
+- known `waiting_ids`
+- interpreted state
 
-### Exemple de mise en service complete
+### Full setup example
 
-1. Lier un joueur Discord a son ID BGA :
+1. Link a Discord player to a BGA ID:
 
 ```text
-/bga link-member @MrHaurrus 91713763 Haurrus
+/bga link-member @MrHaurrus Haurrus 91713763
 ```
 
-2. Ajouter une table a surveiller :
+2. Add a table to watch:
 
 ```text
 /bga watch https://en.boardgamearena.com/6/perfectwords?table=827318521
 ```
 
-3. Verifier les watches :
+3. Check watched tables:
 
 ```text
 /bga watchlist
 ```
 
-4. Verifier l'etat courant :
+4. Check the current state:
 
 ```text
 /bga status
 ```
 
-## 3. Fonctionnement technique
+## 3. Technical overview
 
-### Vue d'ensemble
+### High-level view
 
-Le bot repose sur 3 couches :
-- Discord : reception des slash commands et publication des messages
-- SQLite : persistance des liens Discord/BGA et des watches
-- BGA public : lecture de la page publique de table + connexion au websocket public
+The bot has 3 layers:
+- Discord: slash commands and message publishing
+- SQLite: persistence for links and watches
+- Public BGA: table page bootstrap + public websocket connection
 
-### Fonctionnement reseau cote BGA
+### BGA network flow
 
-Le bot n'utilise pas de cookies, pas de session navigateur, pas de login BGA.
+The bot does not use cookies, browser sessions, or BGA login.
 
-Le flux reseau est le suivant.
+The network flow is the following.
 
-#### 1. Lecture de la page publique
+#### 1. Load the public table page
 
-Le bot telecharge l'URL publique de la table, par exemple :
+The bot downloads the public table URL, for example:
 
 ```text
 https://en.boardgamearena.com/6/perfectwords?table=827318521
 ```
 
-Dans ce HTML, il extrait :
-- l'identite spectateur anonyme
+From that HTML it extracts:
+- anonymous spectator identity
   - `user_id`
   - `current_player_name`
-  - `archivemask`, reutilise comme `credentials` websocket
-- les noms des joueurs connus dans le bootstrap HTML
-- l'etat initial du jeu si disponible
-  - en particulier `gamestate.active_player` pour les jeux mono-actifs
+  - `archivemask`, reused as websocket `credentials`
+- known player names from the HTML bootstrap
+- the initial game state when available
+  - especially `gamestate.active_player` for single-active-player games
 
-#### 2. Connexion websocket publique
+#### 2. Open the public websocket
 
-Le bot ouvre ensuite le websocket public BGA :
+The bot then opens the public BGA websocket:
 
 ```text
 wss://ws-x1.boardgamearena.com/connection/websocket
 ```
 
-Puis il rejoue le handshake BGA/Centrifugo :
+It replays the BGA/Centrifugo handshake:
 - `connect`
 - `subscribe bgamsg`
 - `subscribe /general/emergency`
@@ -308,115 +337,116 @@ Puis il rejoue le handshake BGA/Centrifugo :
 - `subscribe /table/t<TABLE_ID>`
 - `presence /table/t<TABLE_ID>`
 
-#### 3. Interpretation des evenements
+#### 3. Interpret events
 
-Le bot reconstruit l'etat des joueurs attendus (`waiting_ids`) avec cet ordre de priorite :
+The bot reconstructs `waiting_ids` with this priority order:
 
 1. `gameStateMultipleActiveUpdate`
-2. `gameStateChange.active_player` pour les jeux mono-actifs
-3. `yourturnack` comme fallback leger
-4. heuristiques publiques limitees sur certains evenements (`beginTurn`, `endPrivateAction`, etc.)
+2. `gameStateChange.active_player` for single-active-player games
+3. `yourturnack` as a light fallback
+4. limited public heuristics on some events (`beginTurn`, `endPrivateAction`, etc.)
 
-Pour detecter la fin d'une partie, le bot utilise en plus :
+To detect that a game is finished, the bot also uses:
 
-1. `tableInfosChanged` avec `status = finished`
+1. `tableInfosChanged` with `status = finished`
 2. `tableInfosChanged.reload_reason = tableDestroy`
-3. les evenements de fin visibles dans le flux (`End of game`, `simpleNote`, `simpleNode`)
-4. un controle de secours sur `tableinfos.html` quand le websocket devient silencieux
+3. end-of-game events visible in the public stream (`End of game`, `simpleNote`, `simpleNode`)
+4. a fallback `tableinfos.html` check when the websocket becomes silent
 
-#### 4. Difference mono-actif / multi-actif
+#### 4. Single-active vs multi-active games
 
-Le comportement a ete pense pour ne pas casser les jeux multi-actifs.
+The behavior is designed not to break multi-active games.
 
-- Si la page publique expose un `gamestate` de type `activeplayer`, le bot peut initialiser tout de suite `waiting_ids` depuis `active_player`.
-- Si la page publique expose un etat `multipleactiveplayer`, le bot n'invente rien au bootstrap HTML et attend le websocket, en particulier `gameStateMultipleActiveUpdate`.
+- If the public page exposes a `gamestate` of type `activeplayer`, the bot can initialize `waiting_ids` immediately from `active_player`.
+- If the public page exposes a `multipleactiveplayer` state, the bot does not invent anything from HTML bootstrap and waits for websocket events, especially `gameStateMultipleActiveUpdate`.
 
-Concretement :
-- `Perfectwords` beneficie du bootstrap HTML initial
-- `Seven Wonders Dice` reste pilote surtout par `gameStateMultipleActiveUpdate`
+In practice:
+- `Perfectwords` benefits from HTML bootstrap immediately
+- `Seven Wonders Dice` is still driven mainly by `gameStateMultipleActiveUpdate`
 
-### Fonctionnement des messages Discord
+### Discord message behavior
 
-Pour chaque table surveillee :
-- le bot cree un message quand un tour actif commence
-- il edite ce message tant que la liste des joueurs attendus se reduit
-- il supprime ce message quand le tour est fini
-- il cree un nouveau message au tour suivant
-- si la partie BGA est detectee comme terminee, il supprime le dernier message actif et retire automatiquement la watch
+For each watched table:
+- the bot creates a message when an active turn starts
+- it edits that message while the waiting list shrinks
+- it deletes that message when the turn is over
+- it creates a new message for the next turn
+- if the BGA game is detected as finished, it deletes the last active message and automatically removes the watch
 
-Au demarrage du bot :
-- il nettoie les anciens messages du bot lies a chaque table surveillee dans le salon
-- il republie ensuite un etat propre
+On bot startup:
+- it removes old bot messages linked to each watched table in the channel
+- then republishes a clean current state
 
-Le nettoyage est cible :
-- seuls les messages du bot contenant `Table : <table_id>` sont supprimes
-- le reste du salon n'est pas touche
+This cleanup is targeted:
+- only bot messages containing `Table : <table_id>` are removed
+- the rest of the channel is untouched
 
-### Architecture Python
+### Python architecture
 
 #### `bot.py`
 
-Responsabilites :
-- charge `.env`
-- initialise les logs
-- ouvre la base SQLite
-- instancie `BgaClient`
-- instancie `BgaMonitor`
-- demarre le bot Discord
-- synchronise les slash commands
+Responsibilities:
+- load `.env`
+- initialize logging
+- open the SQLite database
+- instantiate `BgaClient`
+- instantiate `BgaMonitor`
+- start the Discord bot
+- sync slash commands
 
 #### `commands_bga.py`
 
-Responsabilites :
-- expose les commandes `/bga`
-- valide les permissions Discord
-- parse les URLs de table
-- enregistre les watches et les liens Discord/BGA
-- declenche un rafraichissement immediat du monitor apres `/bga watch`, `/bga unwatch` et `/bga unwatch-all`
+Responsibilities:
+- expose `/bga` commands
+- validate Discord permissions
+- parse table URLs
+- store watches and Discord/BGA links
+- support partial links and automatic enrichment
+- trigger an immediate monitor refresh after `/bga watch`, `/bga unwatch`, and `/bga unwatch-all`
 
 #### `database.py`
 
-Responsabilites :
-- cree et migre la base SQLite
-- lit et ecrit les mappings utilisateurs
-- lit et ecrit les watches
-- conserve le dernier etat connu par watch
+Responsibilities:
+- create and migrate the SQLite database
+- read and write user mappings
+- read and write watches
+- store the last known state per watch
 
 #### `bga_client.py`
 
-Responsabilites :
-- telecharge la page publique de table
-- extrait le bootstrap HTML utile
-- ouvre et maintient la connexion websocket publique BGA
-- parse les messages websocket
-- detecte les fins de partie via websocket ou via `tableinfos.html`
-- produit des objets `BgaNotificationState`
+Responsibilities:
+- download the public table page
+- extract useful HTML bootstrap data
+- open and maintain the public BGA websocket connection
+- parse websocket messages
+- detect end-of-game transitions from the websocket or from `tableinfos.html`
+- produce `BgaNotificationState` objects
 
 #### `monitor.py`
 
-Responsabilites :
-- lance un worker websocket par table surveillee
-- compare l'ancien et le nouvel etat
-- decide quand creer, modifier ou supprimer les messages Discord
-- nettoie les anciens messages au demarrage
-- supprime automatiquement le message actif et la watch quand la partie est terminee
+Responsibilities:
+- start one websocket worker per watched table
+- compare old and new states
+- decide when to create, update, or delete Discord messages
+- clean old messages on startup
+- automatically delete the active message and remove the watch when a game is over
 
 #### `utils.py`
 
-Responsabilites :
-- parse les URLs BGA
-- helpers JSON
-- normalisation de petits formats utilitaires
+Responsibilities:
+- parse BGA URLs
+- JSON helpers
+- small formatting and utility helpers
 
-### Points importants et limites
+### Important notes and limits
 
-- le bot ne fonctionne que sur des tables BGA accessibles publiquement en mode spectateur
-- le bot est self-host : il doit tourner sur ta machine pour surveiller les tables
-- les warnings Discord lies a la voix (`PyNaCl`, `davey`) ne sont pas bloquants pour ce projet
-- le warning `message content intent` n'est pas bloquant ici car le bot repose sur des slash commands
-- les noms de jeux affiches viennent du slug BGA ou du bootstrap public, donc ils ne sont pas toujours joliment formates
+- the bot only works for BGA tables publicly accessible in spectator mode
+- the bot is self-hosted: it must keep running on your machine to keep watching tables
+- Discord voice warnings (`PyNaCl`, `davey`) are not relevant for this project
+- the `message content intent` warning is not blocking here because the bot relies on slash commands
+- displayed game names come from the BGA slug or public bootstrap, so they are not always perfectly formatted
 
-## Commande de lancement rapide
+## Quick start
 
 ```bash
 python -m venv .venv
@@ -426,4 +456,4 @@ cp .env.example .env
 python bot.py
 ```
 
-Adapte seulement l'activation du venv et la commande de copie si ton shell utilise une syntaxe differente.
+Adjust only the venv activation and file copy commands if your shell uses a different syntax.

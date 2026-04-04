@@ -8,12 +8,13 @@ from discord.ext import commands
 
 from bga_client import BgaClient, BgaClientError, BgaNotPublicError
 from database import Database
+from i18n import tr
 from monitor import BgaMonitor
 from utils import build_table_url, format_game_name, parse_public_table_url, parse_table_id
 
 
 class BgaCommands(commands.Cog):
-    bga = app_commands.Group(name="bga", description="Commandes Board Game Arena")
+    bga = app_commands.Group(name="bga", description=tr("command_group_description"))
 
     def __init__(self, database: Database, bga_client: BgaClient, monitor: BgaMonitor) -> None:
         self.database = database
@@ -25,37 +26,37 @@ class BgaCommands(commands.Cog):
         permissions = interaction.permissions
         return permissions.manage_guild or permissions.administrator
 
-    @bga.command(name="link-member", description="Lie manuellement un membre Discord a un ID BGA")
+    @bga.command(name="link-member", description=tr("command_link_member_description"))
     @app_commands.describe(
-        member="Membre Discord a lier",
-        bga_player_id="ID joueur BGA",
-        bga_player_name="Nom BGA a afficher dans les notifications",
+        member=tr("command_link_member_member"),
+        bga_player_name=tr("command_link_member_name"),
+        bga_player_id=tr("command_link_member_id"),
     )
     async def link_member(
         self,
         interaction: discord.Interaction,
         member: discord.Member,
-        bga_player_id: str,
-        bga_player_name: str,
+        bga_player_name: str | None = None,
+        bga_player_id: str | None = None,
     ) -> None:
         if not self._has_manage_permissions(interaction):
             await interaction.response.send_message(
-                "Il faut la permission `Manage Server` pour lier un membre Discord a un ID BGA.",
+                tr("error_manage_server_required_link"),
                 ephemeral=True,
             )
             return
 
-        candidate_id = bga_player_id.strip()
-        candidate_name = bga_player_name.strip()
-        if not candidate_id.isdigit():
+        candidate_id = (bga_player_id or "").strip()
+        candidate_name = (bga_player_name or "").strip()
+        if not candidate_id and not candidate_name:
             await interaction.response.send_message(
-                "`bga_player_id` doit etre un entier BGA valide.",
+                tr("error_need_bga_name_or_id"),
                 ephemeral=True,
             )
             return
-        if not candidate_name:
+        if candidate_id and not candidate_id.isdigit():
             await interaction.response.send_message(
-                "`bga_player_name` ne peut pas etre vide.",
+                tr("error_invalid_bga_player_id"),
                 ephemeral=True,
             )
             return
@@ -65,17 +66,22 @@ class BgaCommands(commands.Cog):
             bga_player_id=candidate_id,
             bga_player_name=candidate_name,
         )
+        linked_user = self.database.get_linked_user(str(member.id))
+        assert linked_user is not None
+        name_display = linked_user.bga_player_name or tr("link_missing_value_placeholder")
+        id_display = linked_user.bga_player_id or tr("link_missing_value_placeholder")
         await interaction.response.send_message(
-            (
-                f"Lien enregistre pour {member.mention}.\n"
-                f"BGA ID : `{candidate_id}`\n"
-                f"Nom BGA : `{candidate_name}`"
+            tr(
+                "link_saved",
+                member_mention=member.mention,
+                bga_name=name_display,
+                bga_id=id_display,
             ),
             ephemeral=True,
         )
 
-    @bga.command(name="unlink-member", description="Supprime le lien BGA d'un membre Discord")
-    @app_commands.describe(member="Membre Discord a delier")
+    @bga.command(name="unlink-member", description=tr("command_unlink_member_description"))
+    @app_commands.describe(member=tr("command_unlink_member_member"))
     async def unlink_member(
         self,
         interaction: discord.Interaction,
@@ -83,7 +89,7 @@ class BgaCommands(commands.Cog):
     ) -> None:
         if not self._has_manage_permissions(interaction):
             await interaction.response.send_message(
-                "Il faut la permission `Manage Server` pour delier un membre Discord.",
+                tr("error_manage_server_required_unlink"),
                 ephemeral=True,
             )
             return
@@ -91,83 +97,105 @@ class BgaCommands(commands.Cog):
         removed = self.database.remove_linked_user(str(member.id))
         if not removed:
             await interaction.response.send_message(
-                f"Aucun lien BGA n'existe pour {member.mention}.",
+                tr("unlink_not_found", member_mention=member.mention),
                 ephemeral=True,
             )
             return
 
         await interaction.response.send_message(
-            f"Lien BGA supprime pour {member.mention}.",
+            tr("unlink_saved", member_mention=member.mention),
             ephemeral=True,
         )
 
-    @bga.command(name="linked", description="Affiche les membres Discord lies a un ID BGA")
+    @bga.command(name="linked", description=tr("command_linked_description"))
     async def linked(self, interaction: discord.Interaction) -> None:
         linked_users = self.database.list_linked_users()
         if not linked_users:
             await interaction.response.send_message(
-                "Aucun membre Discord n'est encore lie a un ID BGA.",
+                tr("linked_none"),
                 ephemeral=True,
             )
             return
 
         lines = [
-            f"- <@{item.discord_user_id}> -> `{item.bga_player_name}` (`{item.bga_player_id}`)"
+            tr(
+                "linked_line",
+                discord_user_id=item.discord_user_id,
+                bga_player_name=item.bga_player_name or tr("value_unknown"),
+                bga_player_id=item.bga_player_id or tr("value_unknown"),
+            )
             for item in linked_users
         ]
         await interaction.response.send_message(
-            "Liens BGA connus :\n" + "\n".join(lines),
+            tr("linked_header") + "\n" + "\n".join(lines),
             ephemeral=True,
         )
 
-    @bga.command(name="watch", description="Ajoute une table BGA publique a surveiller dans ce salon")
-    @app_commands.describe(table_or_url="URL complete publique de table BGA")
+    @bga.command(name="watch", description=tr("command_watch_description"))
+    @app_commands.describe(table_or_url=tr("command_watch_target"))
     async def watch(self, interaction: discord.Interaction, table_or_url: str) -> None:
         if interaction.guild_id is None or interaction.channel_id is None:
             await interaction.response.send_message(
-                "Cette commande doit etre lancee dans un salon de serveur Discord.",
+                tr("error_command_server_channel_only"),
                 ephemeral=True,
             )
             return
 
         try:
             table_id, table_url, base_url, gameserver, game_name = parse_public_table_url(table_or_url)
-        except ValueError as exc:
-            await interaction.response.send_message(str(exc), ephemeral=True)
-            return
+            resolved_from_id_only = False
+        except ValueError:
+            try:
+                table_id = parse_table_id(table_or_url)
+            except ValueError as exc:
+                await interaction.response.send_message(str(exc), ephemeral=True)
+                return
+            table_url = ""
+            base_url = ""
+            gameserver = ""
+            game_name = ""
+            resolved_from_id_only = True
 
         await interaction.response.defer(ephemeral=True, thinking=True)
-        table_info = self.bga_client.build_public_table_info(
-            table_id=table_id,
-            table_url=table_url,
-            base_url=base_url,
-            gameserver=gameserver,
-            game_name=game_name,
-        )
+        try:
+            if resolved_from_id_only:
+                table_info = await asyncio.to_thread(self.bga_client.resolve_public_table_info_from_id, table_id)
+            else:
+                table_info = self.bga_client.build_public_table_info(
+                    table_id=table_id,
+                    table_url=table_url,
+                    base_url=base_url,
+                    gameserver=gameserver,
+                    game_name=game_name,
+                )
+        except BgaClientError as exc:
+            await interaction.followup.send(str(exc), ephemeral=True)
+            return
+
         try:
             state = await self.bga_client.probe_public_table(table_info, known_player_names={})
         except BgaNotPublicError as exc:
             await interaction.followup.send(
-                f"La table `{table_id}` n'est pas exploitable en mode public/spectateur: {exc}",
+                tr("error_watch_not_public", table_id=table_info.table_id, error=exc),
                 ephemeral=True,
             )
             return
         except BgaClientError as exc:
             await interaction.followup.send(
-                f"Impossible de verifier la table `{table_id}`: {exc}",
+                tr("error_watch_verify_failed", table_id=table_info.table_id, error=exc),
                 ephemeral=True,
             )
             return
 
         subscription = self.database.upsert_watch_subscription(
-            table_id=table_id,
-            table_url=table_url,
-            base_url=base_url,
-            gameserver=gameserver,
+            table_id=table_info.table_id,
+            table_url=table_info.table_url,
+            base_url=table_info.base_url,
+            gameserver=table_info.gameserver,
             guild_id=str(interaction.guild_id),
             channel_id=str(interaction.channel_id),
             created_by_discord_user_id=str(interaction.user.id),
-            game_name=game_name,
+            game_name=table_info.game_name,
         )
         persisted_player_names = dict(subscription.player_names)
         persisted_player_names.update(state.player_names)
@@ -177,47 +205,63 @@ class BgaCommands(commands.Cog):
             waiting_ids=subscription.last_waiting_ids,
             player_names=persisted_player_names,
             is_initialized=subscription.is_initialized,
-            game_name=game_name,
+            game_name=table_info.game_name,
         )
-        linked_users = self.database.get_linked_users_by_bga_ids(list(state.player_names.keys()))
-        linked_by_bga_id = {item.bga_player_id: item for item in linked_users}
+        await asyncio.to_thread(self.database.enrich_linked_users_from_players, persisted_player_names)
+        linked_users = await asyncio.to_thread(self.database.get_linked_users_for_players, state.player_names)
+        linked_by_bga_id = {item.bga_player_id: item for item in linked_users if item.bga_player_id}
+        linked_by_name = {
+            item.bga_player_name.casefold(): item
+            for item in linked_users
+            if item.bga_player_name
+        }
         detected_players = []
         for player_id, player_name in sorted(state.player_names.items()):
             linked_user = linked_by_bga_id.get(player_id)
+            if linked_user is None and player_name:
+                linked_user = linked_by_name.get(player_name.casefold())
             if linked_user is not None:
                 detected_players.append(
                     f"<@{linked_user.discord_user_id}> {player_name} ({player_id})"
                 )
             else:
                 detected_players.append(f"{player_name} ({player_id})")
-        detected_players_text = ", ".join(detected_players) or "aucun joueur detecte pour l'instant"
+        detected_players_text = ", ".join(detected_players) or tr("watch_detected_none")
         init_status = (
-            "deja actif"
+            tr("watch_init_active")
             if subscription.is_initialized
-            else "publication de l'etat au prochain evenement websocket public"
+            else tr("watch_init_waiting_event")
         )
 
         await interaction.followup.send(
-            (
-                "Watch enregistree en mode zero auth.\n"
-                f"Jeu : `{format_game_name(game_name)}`\n"
-                f"Table : `{table_id}`\n"
-                f"Salon : <#{interaction.channel_id}>\n"
-                f"Source publique initiale : `{state.source}`\n"
-                f"Joueurs detectes actuellement : {detected_players_text}\n"
-                f"URL : {table_url}\n"
-                f"Etat d'initialisation : {init_status}"
+            tr(
+                "watch_registered",
+                game_label=tr("label_game"),
+                game_name=format_game_name(table_info.game_name),
+                table_label=tr("label_table"),
+                table_id=table_info.table_id,
+                channel_label=tr("label_channel"),
+                channel_id=interaction.channel_id,
+                public_source_label=tr("label_public_source_initial"),
+                source=state.source,
+                players_detected_label=tr("label_players_detected_currently"),
+                players=detected_players_text,
+                url_label=tr("label_url"),
+                table_url=table_info.table_url,
+                init_state_label=tr("label_init_state"),
+                init_state=init_status,
             ),
             ephemeral=True,
         )
         await self.monitor.refresh_now()
 
-    @bga.command(name="unwatch", description="Retire une table BGA surveillee dans ce salon")
-    @app_commands.describe(table_or_url="ID de table BGA ou URL complete")
+
+    @bga.command(name="unwatch", description=tr("command_unwatch_description"))
+    @app_commands.describe(table_or_url=tr("command_unwatch_target"))
     async def unwatch(self, interaction: discord.Interaction, table_or_url: str) -> None:
         if interaction.guild_id is None or interaction.channel_id is None:
             await interaction.response.send_message(
-                "Cette commande doit etre lancee dans un salon de serveur Discord.",
+                tr("error_command_server_channel_only"),
                 ephemeral=True,
             )
             return
@@ -235,29 +279,29 @@ class BgaCommands(commands.Cog):
         )
         if not removed:
             await interaction.response.send_message(
-                f"Aucune watch active pour la table `{table_id}` dans ce salon.",
+                tr("unwatch_not_found", table_id=table_id),
                 ephemeral=True,
             )
             return
 
         await interaction.response.send_message(
-            f"Watch supprimee pour la table `{table_id}` dans ce salon.",
+            tr("unwatch_removed", table_id=table_id),
             ephemeral=True,
         )
         await self.monitor.refresh_now()
 
-    @bga.command(name="unwatch-all", description="Supprime toutes les watches BGA du serveur courant")
+    @bga.command(name="unwatch-all", description=tr("command_unwatch_all_description"))
     async def unwatch_all(self, interaction: discord.Interaction) -> None:
         if interaction.guild_id is None:
             await interaction.response.send_message(
-                "Cette commande doit etre lancee dans un serveur Discord.",
+                tr("error_command_server_only"),
                 ephemeral=True,
             )
             return
 
         if not self._has_manage_permissions(interaction):
             await interaction.response.send_message(
-                "Il faut la permission `Manage Server` pour supprimer toutes les watches du serveur.",
+                tr("error_manage_server_required_unwatch_all"),
                 ephemeral=True,
             )
             return
@@ -265,22 +309,22 @@ class BgaCommands(commands.Cog):
         removed_count = self.database.remove_all_watch_subscriptions_for_guild(str(interaction.guild_id))
         if removed_count == 0:
             await interaction.response.send_message(
-                "Aucune watch BGA a supprimer sur ce serveur.",
+                tr("unwatch_all_none"),
                 ephemeral=True,
             )
             return
 
         await interaction.response.send_message(
-            f"{removed_count} watch(es) BGA supprimee(s) sur ce serveur.",
+            tr("unwatch_all_removed", removed_count=removed_count),
             ephemeral=True,
         )
         await self.monitor.refresh_now()
 
-    @bga.command(name="watchlist", description="Affiche les tables surveillees sur ce serveur")
+    @bga.command(name="watchlist", description=tr("command_watchlist_description"))
     async def watchlist(self, interaction: discord.Interaction) -> None:
         if interaction.guild_id is None:
             await interaction.response.send_message(
-                "Cette commande doit etre lancee dans un serveur Discord.",
+                tr("error_command_server_only"),
                 ephemeral=True,
             )
             return
@@ -288,7 +332,7 @@ class BgaCommands(commands.Cog):
         subscriptions = self.database.list_watch_subscriptions_for_guild(str(interaction.guild_id))
         if not subscriptions:
             await interaction.response.send_message(
-                "Aucune table BGA n'est surveillee sur ce serveur.",
+                tr("watchlist_none"),
                 ephemeral=True,
             )
             return
@@ -297,24 +341,33 @@ class BgaCommands(commands.Cog):
         for subscription in subscriptions:
             public_url = subscription.table_url or build_table_url(subscription.table_id)
             lines.append(
-                (
-                    f"- Table `{subscription.table_id}` | {format_game_name(subscription.game_name)}\n"
-                    f"  Salon : <#{subscription.channel_id}>\n"
-                    f"  Etat : {'initialise' if subscription.is_initialized else 'en attente du premier evenement websocket'}\n"
-                    f"  URL : {public_url}"
+                tr(
+                    "watchlist_line",
+                    table_id=subscription.table_id,
+                    game_name=format_game_name(subscription.game_name),
+                    channel_label=tr("label_channel"),
+                    channel_id=subscription.channel_id,
+                    state_label=tr("label_state"),
+                    state=(
+                        tr("watch_state_initialized")
+                        if subscription.is_initialized
+                        else tr("watch_state_waiting_first_event")
+                    ),
+                    url_label=tr("label_url"),
+                    table_url=public_url,
                 )
             )
 
         await interaction.response.send_message(
-            "Tables surveillees :\n" + "\n".join(lines),
+            tr("watchlist_header") + "\n" + "\n".join(lines),
             ephemeral=True,
         )
 
-    @bga.command(name="status", description="Affiche l'etat connu des tables surveillees sur ce serveur")
+    @bga.command(name="status", description=tr("command_status_description"))
     async def status(self, interaction: discord.Interaction) -> None:
         if interaction.guild_id is None:
             await interaction.response.send_message(
-                "Cette commande doit etre lancee dans un serveur Discord.",
+                tr("error_command_server_only"),
                 ephemeral=True,
             )
             return
@@ -322,7 +375,7 @@ class BgaCommands(commands.Cog):
         subscriptions = self.database.list_watch_subscriptions_for_guild(str(interaction.guild_id))
         if not subscriptions:
             await interaction.response.send_message(
-                "Aucune table BGA n'est surveillee sur ce serveur.",
+                tr("status_none"),
                 ephemeral=True,
             )
             return
@@ -330,27 +383,32 @@ class BgaCommands(commands.Cog):
         lines = []
         for subscription in subscriptions:
             if not subscription.is_initialized:
-                state = "inconnu"
+                state = tr("status_unknown")
             elif subscription.last_waiting_ids:
                 linked_users = self.database.get_linked_users_by_bga_ids(subscription.last_waiting_ids)
                 if linked_users:
                     mentions = ", ".join(f"<@{item.discord_user_id}>" for item in linked_users)
-                    state = f"a jouer pour {mentions}"
+                    state = tr("status_waiting_for", mentions=mentions)
                 else:
-                    state = "des joueurs sont attendus, mais aucun lien Discord correspondant n'est connu"
+                    state = tr("status_waiting_no_link")
             else:
-                state = "aucun joueur attendu"
+                state = tr("status_no_waiting")
 
             lines.append(
-                (
-                    f"- Table `{subscription.table_id}` | {format_game_name(subscription.game_name)}\n"
-                    f"  Salon : <#{subscription.channel_id}>\n"
-                    f"  Waiting IDs : `{', '.join(subscription.last_waiting_ids) or 'aucun'}`\n"
-                    f"  Etat : {state}"
+                tr(
+                    "status_line",
+                    table_id=subscription.table_id,
+                    game_name=format_game_name(subscription.game_name),
+                    channel_label=tr("label_channel"),
+                    channel_id=subscription.channel_id,
+                    waiting_ids_label=tr("label_waiting_ids"),
+                    waiting_ids=", ".join(subscription.last_waiting_ids) or tr("value_none"),
+                    state_label=tr("label_state"),
+                    state=state,
                 )
             )
 
         await interaction.response.send_message(
-            "Etat des watches :\n" + "\n".join(lines),
+            tr("status_header") + "\n" + "\n".join(lines),
             ephemeral=True,
         )

@@ -8,9 +8,13 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+ROOT_DIR = Path(__file__).resolve().parent
+load_dotenv(dotenv_path=ROOT_DIR / ".env", encoding="utf-8-sig")
+
 from bga_client import BgaClient
 from commands_bga import BgaCommands
 from database import Database
+from i18n import tr
 from monitor import BgaMonitor
 
 
@@ -52,14 +56,10 @@ class BgaDiscordBot(commands.Bot):
             guild = discord.Object(id=self.dev_guild_id)
             self.tree.copy_global_to(guild=guild)
             synced = await self.tree.sync(guild=guild)
-            self.logger.info(
-                "Slash commands synchronisees sur la guilde %s (%s commandes).",
-                self.dev_guild_id,
-                len(synced),
-            )
+            self.logger.info(tr("guild_sync", guild_id=self.dev_guild_id, count=len(synced)))
         else:
             synced = await self.tree.sync()
-            self.logger.info("Slash commands globales synchronisees (%s commandes).", len(synced))
+            self.logger.info(tr("global_sync", count=len(synced)))
 
         self.monitor.start()
         self._startup_completed = True
@@ -71,16 +71,14 @@ class BgaDiscordBot(commands.Bot):
 
 
 def main() -> None:
-    root_dir = Path(__file__).resolve().parent
-    load_dotenv(dotenv_path=root_dir / ".env", encoding="utf-8-sig")
     setup_logging()
 
     token = os.getenv("DISCORD_TOKEN")
     if not token:
-        raise RuntimeError("La variable d'environnement DISCORD_TOKEN est obligatoire.")
+        raise RuntimeError(tr("missing_discord_token"))
 
-    db_path = Path(os.getenv("BGA_DB_PATH", root_dir / "bga_bot.db"))
-    schema_path = root_dir / "schema.sql"
+    db_path = Path(os.getenv("BGA_DB_PATH", ROOT_DIR / "bga_bot.db"))
+    schema_path = ROOT_DIR / "schema.sql"
     poll_seconds = int(os.getenv("BGA_POLL_SECONDS", "15"))
     dev_guild_id = os.getenv("DISCORD_GUILD_ID")
     websocket_url = os.getenv("BGA_WS_URL", "wss://ws-x1.boardgamearena.com/connection/websocket")

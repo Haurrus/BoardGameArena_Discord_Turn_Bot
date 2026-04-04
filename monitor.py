@@ -9,6 +9,7 @@ from discord.ext import tasks
 
 from bga_client import BgaClient, BgaClientError, BgaNotPublicError
 from database import Database
+from i18n import tr
 from models import LinkedUser, WatchSubscription
 from utils import build_table_url, format_game_name
 
@@ -68,13 +69,13 @@ class BgaMonitor:
             if table_id not in active_table_ids:
                 task = self._table_tasks.pop(table_id)
                 task.cancel()
-                LOGGER.info("Worker websocket stoppe pour la table %s.", table_id)
+                LOGGER.info(tr("worker_stopped", table_id=table_id))
 
         for table_id in sorted(active_table_ids):
             task = self._table_tasks.get(table_id)
             if task is None or task.done():
                 self._table_tasks[table_id] = asyncio.create_task(self._run_table_worker(table_id))
-                LOGGER.info("Worker websocket demarre pour la table %s.", table_id)
+                LOGGER.info(tr("worker_started", table_id=table_id))
 
     @sync_tables.before_loop
     async def before_sync_tables(self) -> None:
@@ -91,10 +92,7 @@ class BgaMonitor:
 
                 reference = subscriptions[0]
                 if not reference.table_url or not reference.base_url:
-                    LOGGER.warning(
-                        "La watch de la table %s vient d'une ancienne configuration sans URL publique complete. Recree-la avec /bga watch <url>.",
-                        table_id,
-                    )
+                    LOGGER.warning(tr("legacy_watch_without_url", table_id=table_id))
                     return
 
                 table_info = self.bga_client.build_public_table_info(
@@ -130,15 +128,15 @@ class BgaMonitor:
             except asyncio.CancelledError:
                 raise
             except BgaNotPublicError as exc:
-                LOGGER.warning("Table %s non exploitable publiquement: %s", table_id, exc)
+                LOGGER.warning(tr("table_not_public", table_id=table_id, error=exc))
                 await asyncio.sleep(backoff_seconds)
                 backoff_seconds = min(backoff_seconds * 2, 60)
             except BgaClientError as exc:
-                LOGGER.error("Erreur websocket BGA sur la table %s: %s", table_id, exc)
+                LOGGER.error(tr("websocket_error", table_id=table_id, error=exc))
                 await asyncio.sleep(backoff_seconds)
                 backoff_seconds = min(backoff_seconds * 2, 60)
             except Exception:
-                LOGGER.exception("Erreur inattendue dans le worker websocket de la table %s.", table_id)
+                LOGGER.exception(tr("unexpected_worker_error", table_id=table_id))
                 await asyncio.sleep(backoff_seconds)
                 backoff_seconds = min(backoff_seconds * 2, 60)
 
@@ -147,19 +145,25 @@ class BgaMonitor:
         if not subscriptions:
             return
 
+        merged_player_names = self._merge_player_names(subscriptions)
+        merged_player_names.update(state.player_names)
+        await asyncio.to_thread(self.database.enrich_linked_users_from_players, merged_player_names)
+
         if state.is_game_finished:
-            LOGGER.info("Table %s detectee comme terminee par le flux public.", table_id)
+            LOGGER.info(tr("table_finished_public", table_id=table_id))
             await self._finalize_finished_table(subscriptions, table_id)
             return
 
         table_packet_id = state.highest_packet_id or max(item.last_packet_id for item in subscriptions)
         LOGGER.info(
-            "Table %s | packet=%s | waiting_ids=%s | source=%s | details=%s",
-            table_id,
-            table_packet_id,
-            state.waiting_ids,
-            state.source,
-            state.details,
+            tr(
+                "table_state",
+                table_id=table_id,
+                packet_id=table_packet_id,
+                waiting_ids=state.waiting_ids,
+                source=state.source,
+                details=state.details,
+            )
         )
 
         for subscription in subscriptions:
@@ -253,7 +257,7 @@ class BgaMonitor:
             )
 
         self._table_tasks.pop(table_id, None)
-        LOGGER.info("Watchs supprimees automatiquement pour la table terminee %s.", table_id)
+        LOGGER.info(tr("table_finished_cleanup", table_id=table_id))
 
     async def _handle_waiting_ids_transition(
         self,
@@ -346,18 +350,16 @@ class BgaMonitor:
 
         try:
             message = await channel.send(content)
-            LOGGER.info(
-                "Notification envoyee sur la table %s pour les IDs %s.",
-                table_id,
-                waiting_ids,
-            )
+            LOGGER.info(tr("notification_sent", table_id=table_id, waiting_ids=waiting_ids))
             return message
         except discord.DiscordException as exc:
             LOGGER.error(
-                "Echec d'envoi Discord pour la table %s sur le salon %s: %s",
-                table_id,
-                subscription.channel_id,
-                exc,
+                tr(
+                    "notification_send_failed",
+                    table_id=table_id,
+                    channel_id=subscription.channel_id,
+                    error=exc,
+                )
             )
             return None
 
@@ -388,24 +390,13 @@ class BgaMonitor:
         )
         try:
             await message.edit(content=content)
-            LOGGER.info(
-                "Message de tour mis a jour pour la table %s (waiting_ids=%s).",
-                table_id,
-                waiting_ids,
-            )
+            LOGGER.info(tr("turn_message_updated", table_id=table_id, waiting_ids=waiting_ids))
             return True
         except discord.NotFound:
-            LOGGER.info(
-                "Message de tour deja introuvable pendant la mise a jour pour la table %s.",
-                table_id,
-            )
+            LOGGER.info(tr("turn_message_missing_update", table_id=table_id))
             return False
         except discord.DiscordException as exc:
-            LOGGER.error(
-                "Echec de mise a jour du message Discord pour la table %s: %s",
-                table_id,
-                exc,
-            )
+            LOGGER.error(tr("turn_message_update_failed", table_id=table_id, error=exc))
             return False
 
     async def _delete_turn_message(
@@ -422,20 +413,13 @@ class BgaMonitor:
         message = active_message.message
         try:
             await message.delete()
-            LOGGER.info("Message de tour supprime pour la table %s.", table_id)
+            LOGGER.info(tr("turn_message_deleted", table_id=table_id))
             return True
         except discord.NotFound:
-            LOGGER.info(
-                "Message de tour deja introuvable pendant la suppression pour la table %s.",
-                table_id,
-            )
+            LOGGER.info(tr("turn_message_missing_delete", table_id=table_id))
             return True
         except discord.DiscordException as exc:
-            LOGGER.error(
-                "Echec de suppression du message Discord pour la table %s: %s",
-                table_id,
-                exc,
-            )
+            LOGGER.error(tr("turn_message_delete_failed", table_id=table_id, error=exc))
             return False
 
     async def _cleanup_stale_table_messages(
@@ -448,7 +432,7 @@ class BgaMonitor:
 
         seen_channels: set[str] = set()
         deleted_count = 0
-        table_marker = f"Table : {table_id}"
+        table_markers = {f"{tr('label_table')} : {table_id}", f"{tr('label_table')}: {table_id}", f"Table : {table_id}", f"Table: {table_id}"}
 
         for subscription in subscriptions:
             if subscription.channel_id in seen_channels:
@@ -463,7 +447,7 @@ class BgaMonitor:
                 async for message in channel.history(limit=100):
                     if message.author.id != self.bot.user.id:
                         continue
-                    if table_marker not in message.content:
+                    if not any(marker in message.content for marker in table_markers):
                         continue
                     try:
                         await message.delete()
@@ -472,25 +456,25 @@ class BgaMonitor:
                         continue
                     except discord.DiscordException as exc:
                         LOGGER.warning(
-                            "Impossible de supprimer un ancien message de la table %s dans le salon %s: %s",
-                            table_id,
-                            subscription.channel_id,
-                            exc,
+                            tr(
+                                "stale_message_delete_failed",
+                                table_id=table_id,
+                                channel_id=subscription.channel_id,
+                                error=exc,
+                            )
                         )
             except discord.DiscordException as exc:
                 LOGGER.warning(
-                    "Impossible de parcourir l'historique du salon %s pour nettoyer la table %s: %s",
-                    subscription.channel_id,
-                    table_id,
-                    exc,
+                    tr(
+                        "channel_history_cleanup_failed",
+                        channel_id=subscription.channel_id,
+                        table_id=table_id,
+                        error=exc,
+                    )
                 )
 
         if deleted_count:
-            LOGGER.info(
-                "Nettoyage de demarrage: %s ancien(s) message(s) supprime(s) pour la table %s.",
-                deleted_count,
-                table_id,
-            )
+            LOGGER.info(tr("startup_cleanup", deleted_count=deleted_count, table_id=table_id))
 
     async def _build_turn_message_content(
         self,
@@ -502,20 +486,41 @@ class BgaMonitor:
         game_label: str,
         signal_source: str,
     ) -> str:
-        linked_users = await asyncio.to_thread(self.database.get_linked_users_by_bga_ids, waiting_ids)
-        linked_users_by_bga_id = {user.bga_player_id: user for user in linked_users}
+        observed_waiting_players = {
+            player_id: player_names.get(player_id, "")
+            for player_id in waiting_ids
+        }
+        linked_users = await asyncio.to_thread(
+            self.database.get_linked_users_for_players,
+            observed_waiting_players,
+        )
+        linked_users_by_bga_id = {user.bga_player_id: user for user in linked_users if user.bga_player_id}
+        linked_users_by_name = {
+            user.bga_player_name.casefold(): user
+            for user in linked_users
+            if user.bga_player_name
+        }
         waiting_descriptions = ", ".join(
-            self._format_waiting_player(player_id, player_names, linked_users_by_bga_id)
+            self._format_waiting_player(
+                player_id,
+                player_names,
+                linked_users_by_bga_id,
+                linked_users_by_name,
+            )
             for player_id in waiting_ids
         )
 
-        lines = [f"Jeu : {game_label}", f"Table : {table_id}"]
-        if waiting_descriptions:
-            lines.append(f"Joueurs encore attendus : {waiting_descriptions}")
-        else:
-            lines.append("Joueurs encore attendus : aucun")
-        lines.append(f"URL : {subscription.table_url or build_table_url(table_id)}")
-        return "\n".join(lines)
+        return tr(
+            "turn_message_content",
+            game_label=tr("label_game"),
+            game_name=game_label,
+            table_label=tr("label_table"),
+            table_id=table_id,
+            players_label=tr("label_players_still_waiting"),
+            players=waiting_descriptions or tr("value_none"),
+            url_label=tr("label_url"),
+            table_url=subscription.table_url or build_table_url(table_id),
+        )
 
     async def _resolve_channel(self, subscription: WatchSubscription, table_id: str) -> discord.abc.Messageable | None:
         channel = self.bot.get_channel(int(subscription.channel_id))
@@ -524,18 +529,22 @@ class BgaMonitor:
                 channel = await self.bot.fetch_channel(int(subscription.channel_id))
             except discord.DiscordException as exc:
                 LOGGER.error(
-                    "Impossible de recuperer le salon %s pour la table %s: %s",
-                    subscription.channel_id,
-                    table_id,
-                    exc,
+                    tr(
+                        "channel_fetch_failed",
+                        channel_id=subscription.channel_id,
+                        table_id=table_id,
+                        error=exc,
+                    )
                 )
                 return None
 
         if not isinstance(channel, discord.abc.Messageable):
             LOGGER.error(
-                "Le channel %s n'accepte pas les messages pour la table %s.",
-                subscription.channel_id,
-                table_id,
+                tr(
+                    "channel_not_messageable",
+                    channel_id=subscription.channel_id,
+                    table_id=table_id,
+                )
             )
             return None
         return channel
@@ -556,11 +565,18 @@ class BgaMonitor:
         player_id: str,
         player_names: dict[str, str],
         linked_users_by_bga_id: dict[str, LinkedUser],
+        linked_users_by_name: dict[str, LinkedUser],
     ) -> str:
         linked_user = linked_users_by_bga_id.get(player_id)
         if linked_user is None:
+            player_name = player_names.get(player_id, "").strip()
+            if player_name:
+                linked_user = linked_users_by_name.get(player_name.casefold())
+        if linked_user is None:
             return cls._format_player_reference(player_id, player_names)
-        return f"<@{linked_user.discord_user_id}> {linked_user.bga_player_name} ({linked_user.bga_player_id})"
+        player_label = linked_user.bga_player_name or player_names.get(player_id, "").strip() or player_id
+        player_id_label = linked_user.bga_player_id or player_id
+        return f"<@{linked_user.discord_user_id}> {player_label} ({player_id_label})"
 
     @staticmethod
     def _select_previous_waiting_ids(subscriptions: list[WatchSubscription]) -> list[str]:

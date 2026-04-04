@@ -35,9 +35,11 @@ class Database:
     def upsert_linked_user(
         self,
         discord_user_id: str,
-        bga_player_id: str,
-        bga_player_name: str,
+        bga_player_id: str | None,
+        bga_player_name: str | None,
     ) -> None:
+        normalized_player_id = (bga_player_id or "").strip()
+        normalized_player_name = (bga_player_name or "").strip()
         now = utc_now_iso()
         with self._lock:
             self._connection.execute(
@@ -50,11 +52,17 @@ class Database:
                     updated_at
                 ) VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(discord_user_id) DO UPDATE SET
-                    bga_player_id = excluded.bga_player_id,
-                    bga_player_name = excluded.bga_player_name,
+                    bga_player_id = CASE
+                        WHEN excluded.bga_player_id <> '' THEN excluded.bga_player_id
+                        ELSE users.bga_player_id
+                    END,
+                    bga_player_name = CASE
+                        WHEN excluded.bga_player_name <> '' THEN excluded.bga_player_name
+                        ELSE users.bga_player_name
+                    END,
                     updated_at = excluded.updated_at
                 """,
-                (discord_user_id, bga_player_id, bga_player_name, now, now),
+                (discord_user_id, normalized_player_id, normalized_player_name, now, now),
             )
             self._connection.commit()
 
@@ -104,9 +112,10 @@ class Database:
         ]
 
     def get_linked_users_by_bga_ids(self, bga_player_ids: list[str]) -> list[LinkedUser]:
-        if not bga_player_ids:
+        filtered_ids = [item for item in bga_player_ids if item]
+        if not filtered_ids:
             return []
-        placeholders = ",".join("?" for _ in bga_player_ids)
+        placeholders = ",".join("?" for _ in filtered_ids)
         with self._lock:
             rows = self._connection.execute(
                 f"""
@@ -115,7 +124,7 @@ class Database:
                 WHERE bga_player_id IN ({placeholders})
                 ORDER BY bga_player_name COLLATE NOCASE, discord_user_id
                 """,
-                tuple(bga_player_ids),
+                tuple(filtered_ids),
             ).fetchall()
         return [
             LinkedUser(
@@ -125,6 +134,60 @@ class Database:
             )
             for row in rows
         ]
+
+    def get_linked_users_for_players(self, player_names: dict[str, str]) -> list[LinkedUser]:
+        if not player_names:
+            return []
+        linked_users = self.list_linked_users()
+        matches: dict[str, LinkedUser] = {}
+        for player_id, player_name in player_names.items():
+            match = self._find_matching_linked_user(linked_users, player_id, player_name)
+            if match is not None:
+                matches[match.discord_user_id] = match
+        return sorted(matches.values(), key=lambda item: ((item.bga_player_name or "~").casefold(), item.discord_user_id))
+
+    def enrich_linked_users_from_players(self, player_names: dict[str, str]) -> int:
+        if not player_names:
+            return 0
+
+        updated_count = 0
+        with self._lock:
+            linked_users = self.list_linked_users()
+            now = utc_now_iso()
+            for player_id, player_name in player_names.items():
+                if not player_id and not player_name:
+                    continue
+                match = self._find_matching_linked_user(linked_users, player_id, player_name)
+                if match is None:
+                    continue
+
+                new_player_id = match.bga_player_id or player_id
+                new_player_name = match.bga_player_name or player_name
+                if new_player_id == match.bga_player_id and new_player_name == match.bga_player_name:
+                    continue
+
+                self._connection.execute(
+                    """
+                    UPDATE users
+                    SET bga_player_id = ?, bga_player_name = ?, updated_at = ?
+                    WHERE discord_user_id = ?
+                    """,
+                    (new_player_id, new_player_name, now, match.discord_user_id),
+                )
+                updated_count += 1
+
+                linked_users = [
+                    LinkedUser(
+                        discord_user_id=item.discord_user_id,
+                        bga_player_id=new_player_id if item.discord_user_id == match.discord_user_id else item.bga_player_id,
+                        bga_player_name=new_player_name if item.discord_user_id == match.discord_user_id else item.bga_player_name,
+                    )
+                    for item in linked_users
+                ]
+
+            if updated_count:
+                self._connection.commit()
+        return updated_count
 
     def upsert_watch_subscription(
         self,
@@ -414,6 +477,32 @@ class Database:
         if row is None:
             return 0
         return int(row["count_value"])
+
+    @staticmethod
+    def _normalize_player_name(value: str) -> str:
+        return value.strip().casefold()
+
+    @classmethod
+    def _find_matching_linked_user(
+        cls,
+        linked_users: list[LinkedUser],
+        player_id: str,
+        player_name: str,
+    ) -> LinkedUser | None:
+        normalized_name = cls._normalize_player_name(player_name) if player_name else ""
+        matches: dict[str, LinkedUser] = {}
+        for item in linked_users:
+            id_match = bool(player_id) and bool(item.bga_player_id) and item.bga_player_id == player_id
+            name_match = (
+                bool(normalized_name)
+                and bool(item.bga_player_name)
+                and cls._normalize_player_name(item.bga_player_name) == normalized_name
+            )
+            if id_match or name_match:
+                matches[item.discord_user_id] = item
+        if len(matches) != 1:
+            return None
+        return next(iter(matches.values()))
 
     @staticmethod
     def _watch_subscription_query() -> str:
