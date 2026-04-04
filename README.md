@@ -17,14 +17,14 @@ Target workflow:
 
 ## Quick start
 
-Set `DISCORD_TOKEN` in `.env`, then start the bot.
+After cloning the repository and installing `requirements.txt`, you can start the bot directly with `python -m bga_turn`.
 
 ### Windows PowerShell
 
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e .
+python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 python -m bga_turn
 ```
@@ -34,7 +34,7 @@ python -m bga_turn
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install -r requirements.txt
 cp .env.example .env
 python -m bga_turn
 ```
@@ -50,7 +50,7 @@ python -m bga_turn
 
 ### Project structure
 
-- `bot.py`: Discord bot entry point
+- `bot.py`: development launcher from the repository root
 - `src/bga_turn/app.py`: application entry point
 - `src/bga_turn/commands_bga.py`: `/bga` slash commands
 - `src/bga_turn/bga_client.py`: public BGA networking, HTML parsing, websocket handling
@@ -60,7 +60,7 @@ python -m bga_turn
 - `src/bga_turn/utils.py`: URL parsing, JSON helpers, small utilities
 - `src/bga_turn/schema.sql`: packaged SQLite schema
 - `pyproject.toml`: package metadata and console entry point
-- `requirements.txt`: lightweight bootstrap file for editable install
+- `requirements.txt`: installs the project itself in editable mode
 - `LICENSE`: MIT license
 - `.github/workflows/ci.yml`: lightweight validation on push and pull request
 - `.env.example`: local configuration example
@@ -72,7 +72,7 @@ From the project directory:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
@@ -112,11 +112,23 @@ BOT_LANG=EN
 
 ### Run the bot
 
+#### Recommended
+
 ```bash
 python -m bga_turn
 ```
 
-You can also keep using `python bot.py` from the repository root as a compatibility launcher.
+or
+
+```bash
+bga-turn-bot
+```
+
+#### Optional development launcher
+
+```bash
+python bot.py
+```
 
 If `DISCORD_GUILD_ID` is set, slash commands are synced to that guild. Otherwise, they are synced globally, which may take longer.
 
@@ -431,7 +443,8 @@ Responsibilities:
 #### `bot.py`
 
 Responsibilities:
-- keep backward compatibility for `python bot.py` from the repository root
+- act as an optional development launcher from the repository root
+- add `src/` to `sys.path`
 - forward execution to the packaged application in `src/bga_turn`
 
 #### `src/bga_turn/commands_bga.py`

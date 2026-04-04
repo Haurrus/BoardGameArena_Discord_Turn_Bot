@@ -17,14 +17,14 @@ Le workflow cible est simple :
 
 ## Demarrage rapide
 
-Renseigne `DISCORD_TOKEN` dans `.env`, puis lance le bot.
+Apres avoir clone le depot et installe `requirements.txt`, tu peux lancer directement le bot avec `python -m bga_turn`.
 
 ### Windows PowerShell
 
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e .
+python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 python -m bga_turn
 ```
@@ -34,7 +34,7 @@ python -m bga_turn
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install -r requirements.txt
 cp .env.example .env
 python -m bga_turn
 ```
@@ -50,7 +50,7 @@ python -m bga_turn
 
 ### Structure du projet
 
-- `bot.py` : lanceur de compatibilite depuis la racine du depot
+- `bot.py` : lanceur de dev depuis la racine du depot
 - `src/bga_turn/app.py` : point d'entree principal de l'application
 - `src/bga_turn/commands_bga.py` : slash commands `/bga`
 - `src/bga_turn/bga_client.py` : acces reseau BGA public, parsing HTML + websocket
@@ -60,7 +60,7 @@ python -m bga_turn
 - `src/bga_turn/utils.py` : parsing URL, JSON, helpers divers
 - `src/bga_turn/schema.sql` : schema SQLite embarque dans le package
 - `pyproject.toml` : metadata du package et point d'entree console
-- `requirements.txt` : fichier bootstrap leger pour installation editable
+- `requirements.txt` : installe le projet lui-meme en mode editable
 - `LICENSE` : licence MIT
 - `.github/workflows/ci.yml` : validation legere sur les pushes et pull requests
 - `.env.example` : exemple de configuration locale
@@ -72,7 +72,7 @@ Depuis le dossier du projet :
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
@@ -112,11 +112,23 @@ BOT_LANG=EN
 
 ### Lancement
 
+#### Recommande
+
 ```bash
 python -m bga_turn
 ```
 
-Tu peux aussi continuer a utiliser `python bot.py` depuis la racine du depot comme lanceur de compatibilite.
+ou
+
+```bash
+bga-turn-bot
+```
+
+#### Lanceur de dev optionnel
+
+```bash
+python bot.py
+```
 
 Si `DISCORD_GUILD_ID` est renseigne, les slash commands seront synchronisees sur cette guilde. Sinon, elles seront synchronisees globalement, ce qui peut prendre plus de temps.
 
@@ -431,7 +443,8 @@ Responsabilites :
 #### `bot.py`
 
 Responsabilites :
-- conserve la compatibilite avec `python bot.py` depuis la racine du depot
+- sert de lanceur de dev optionnel depuis la racine du depot
+- ajoute `src/` au `sys.path`
 - redirige l'execution vers l'application packagee dans `src/bga_turn`
 
 #### `src/bga_turn/commands_bga.py`
