@@ -9,14 +9,6 @@ class LinkedUser:
     bga_player_id: str
     bga_player_name: str
 
-    @property
-    def has_bga_player_id(self) -> bool:
-        return bool(self.bga_player_id)
-
-    @property
-    def has_bga_player_name(self) -> bool:
-        return bool(self.bga_player_name)
-
 
 @dataclass(slots=True)
 class WatchSubscription:

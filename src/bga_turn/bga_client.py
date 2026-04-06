@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html as html_lib
 import json
 import logging
 import re
@@ -14,7 +15,6 @@ from websockets import ConnectionClosed
 
 from .i18n import tr
 from .models import BgaNotificationState, BgaTableInfo
-from .utils import BASE_URL
 
 LOGGER = logging.getLogger(__name__)
 
@@ -35,6 +35,7 @@ class SpectatorBootstrap:
 
 
 class BgaClient:
+    _HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
     _CURRENT_PLAYER_NAME_PATTERN = re.compile(
         r'globalThis\.gameui\.current_player_name\s*=\s*"(?P<username>[^"]+)"'
     )
@@ -42,24 +43,63 @@ class BgaClient:
         r'globalThis\.gameui\.completesetup\(\s*"(?P<game_name>[^"]+)"\s*,\s*"(?P<game_label>[^"]+)"\s*,\s*(?P<table_id>\d+)\s*,\s*(?P<user_id>-?\d+)\s*,\s*(?:/\*archivemask_begin\*/)?"(?P<credentials>[0-9a-fA-F]{32,64})"',
         re.DOTALL,
     )
+    _PLAYERS_OBJECT_START_PATTERN = re.compile(r'"players"\s*:\s*\{', re.IGNORECASE)
+    _PLAYER_ARRAY_START_PATTERN = re.compile(r'"player"\s*:\s*\[', re.IGNORECASE)
     _PLAYER_ENTRY_PATTERNS = [
         re.compile(
-            r'"(?P<player_id>\d+)":\{.*?"id":"(?P=player_id)".*?"name":"(?P<player_name>[^"]+)"',
+            r'"player_id"\s*:\s*"?(?P<player_id>\d+)"?.{0,2000}?"player_name"\s*:\s*"(?P<player_name>[^"]+)"',
             re.DOTALL,
         ),
         re.compile(
-            r'"id":"(?P<player_id>\d+)".{0,4000}?"name":"(?P<player_name>[^"]+)"',
+            r'"player_name"\s*:\s*"(?P<player_name>[^"]+)".{0,2000}?"player_id"\s*:\s*"?(?P<player_id>\d+)"?',
             re.DOTALL,
         ),
         re.compile(
-            r'"player_id":"?(?P<player_id>\d+)"?.{0,2000}?"player_name":"(?P<player_name>[^"]+)"',
-            re.DOTALL,
+            r'"id"\s*:\s*"?(?P<player_id>\d+)"?.{0,4000}?"fullname"\s*:\s*"(?P<player_name>[^"]+)"',
+            re.DOTALL | re.IGNORECASE,
         ),
         re.compile(
-            r'"player_name":"(?P<player_name>[^"]+)".{0,2000}?"player_id":"?(?P<player_id>\d+)"?',
-            re.DOTALL,
+            r'"fullname"\s*:\s*"(?P<player_name>[^"]+)".{0,4000}?"id"\s*:\s*"?(?P<player_id>\d+)"?',
+            re.DOTALL | re.IGNORECASE,
+        ),
+        re.compile(
+            r'"player_id"\s*:\s*"?(?P<player_id>\d+)"?.{0,2000}?"fullname"\s*:\s*"(?P<player_name>[^"]+)"',
+            re.DOTALL | re.IGNORECASE,
+        ),
+        re.compile(
+            r'"fullname"\s*:\s*"(?P<player_name>[^"]+)".{0,2000}?"player_id"\s*:\s*"?(?P<player_id>\d+)"?',
+            re.DOTALL | re.IGNORECASE,
+        ),
+        re.compile(
+            r'"playerId"\s*:\s*"?(?P<player_id>\d+)"?.{0,2000}?"(?:playerName|name|fullname|username)"\s*:\s*"(?P<player_name>[^"]+)"',
+            re.DOTALL | re.IGNORECASE,
+        ),
+        re.compile(
+            r'"(?:playerName|name|fullname|username)"\s*:\s*"(?P<player_name>[^"]+)".{0,2000}?"playerId"\s*:\s*"?(?P<player_id>\d+)"?',
+            re.DOTALL | re.IGNORECASE,
+        ),
+        re.compile(
+            r'"(?P<player_id>\d+)"\s*:\s*\{(?=[^}]{0,4000}"(?:avatar|rank|table_status|color|zombie|score|table_order|country|played|is_admin|is_premium|no|eliminated|scoreAux|crystal)"[^}]{0,4000}).{0,4000}?"(?:name|fullname|player_name|username)"\s*:\s*"(?P<player_name>[^"]+)"',
+            re.DOTALL | re.IGNORECASE,
         ),
     ]
+    _PLAYER_ID_KEYS = ("player_id", "playerid", "player", "id", "user", "user_id", "userid")
+    _PLAYER_NAME_KEYS = ("player_name", "playername", "name", "fullname", "full_name", "username")
+    _PLAYERISH_KEYS = {
+        "avatar",
+        "rank",
+        "color",
+        "score",
+        "table_status",
+        "is_admin",
+        "is_premium",
+        "table_order",
+        "country",
+        "zombie",
+        "gamerank",
+        "finish_game",
+        "played",
+    }
     _GAMESTATE_PATTERN = re.compile(
         r'"gamestate":\{"id":(?P<state_id>\d+).*?"active_player":"(?P<active_player>\d+)"',
         re.DOTALL,
@@ -79,9 +119,16 @@ class BgaClient:
         ),
     ]
 
-    def __init__(self, timeout: int = 30, websocket_url: str = "wss://ws-x1.boardgamearena.com/connection/websocket") -> None:
+    def __init__(
+        self,
+        timeout: int = 30,
+        websocket_url: str = "wss://ws-x1.boardgamearena.com/connection/websocket",
+        *,
+        enable_tableinfos_fallback: bool = False,
+    ) -> None:
         self.timeout = timeout
         self.websocket_url = websocket_url
+        self.enable_tableinfos_fallback = enable_tableinfos_fallback
         self._http = requests.Session()
         self._http.headers.update(
             {
@@ -109,22 +156,6 @@ class BgaClient:
         return BgaTableInfo(
             table_id=table_id,
             table_url=table_url,
-            base_url=base_url,
-            gameserver=gameserver,
-            game_name=game_name,
-        )
-
-    def resolve_public_table_info_from_id(self, table_id: str, base_url: str = BASE_URL) -> BgaTableInfo:
-        data = self._fetch_public_tableinfos_data(table_id=table_id, base_url=base_url)
-        game_name = str(data.get("game_name") or "").strip()
-        gameserver = str(data.get("gameserver") or "").strip()
-        if not game_name or not gameserver:
-            raise BgaClientError(tr("error_resolve_public_table_url", table_id=table_id))
-
-        normalized_url = f"{base_url}/{gameserver}/{game_name}?table={table_id}"
-        return self.build_public_table_info(
-            table_id=table_id,
-            table_url=normalized_url,
             base_url=base_url,
             gameserver=gameserver,
             game_name=game_name,
@@ -161,6 +192,19 @@ class BgaClient:
         )
         return is_finished
 
+    def fetch_public_player_names(self, table_info: BgaTableInfo) -> dict[str, str]:
+        try:
+            response = self._http.get(table_info.table_url, timeout=self.timeout)
+        except requests.RequestException as exc:
+            raise BgaClientError(
+                tr("error_load_public_page", table_url=table_info.table_url, error=exc)
+            ) from exc
+
+        if response.status_code >= 400:
+            raise BgaClientError(tr("error_public_page_http", status_code=response.status_code))
+
+        return self._extract_player_names_from_html(response.text)
+
     def _fetch_public_tableinfos_data(self, *, table_id: str, base_url: str) -> dict[str, Any]:
         endpoint = (
             f"{base_url}/table/table/tableinfos.html"
@@ -182,8 +226,19 @@ class BgaClient:
         except ValueError as exc:
             raise BgaClientError(tr("error_tableinfos_invalid_json", table_id=table_id)) from exc
 
-        if not isinstance(payload, dict) or str(payload.get("status")) != "1":
+        if not isinstance(payload, dict):
             raise BgaClientError(tr("error_tableinfos_unexpected", table_id=table_id))
+
+        if str(payload.get("status")) != "1":
+            raise BgaClientError(
+                tr(
+                    "error_tableinfos_unexpected_payload",
+                    table_id=table_id,
+                    status=str(payload.get("status") or "n/a"),
+                    exception=str(payload.get("exception") or "n/a"),
+                    error=str(payload.get("error") or "n/a"),
+                )
+            )
 
         data = payload.get("data")
         if not isinstance(data, dict):
@@ -304,10 +359,22 @@ class BgaClient:
                 try:
                     message = await asyncio.wait_for(self._recv_message(websocket), timeout=30)
                 except asyncio.TimeoutError:
-                    finished_publicly = await asyncio.to_thread(
-                        self.fetch_public_table_finished_status,
-                        table_info,
-                    )
+                    if not self.enable_tableinfos_fallback:
+                        continue
+                    try:
+                        finished_publicly = await asyncio.to_thread(
+                            self.fetch_public_table_finished_status,
+                            table_info,
+                        )
+                    except BgaClientError as exc:
+                        LOGGER.warning(
+                            tr(
+                                "idle_tableinfos_check_failed",
+                                table_id=table_info.table_id,
+                                error=exc,
+                            )
+                        )
+                        continue
                     if finished_publicly:
                         yield BgaNotificationState(
                             highest_packet_id=None,
@@ -468,14 +535,73 @@ class BgaClient:
     @classmethod
     def _extract_player_names_from_html(cls, html: str) -> dict[str, str]:
         player_names: dict[str, str] = {}
-        for candidate in (html, html.replace('\\"', '"')):
+        for block in cls._iter_player_candidate_blocks(html):
+            parsed_block = cls._try_parse_json_fragment(block)
+            if parsed_block is not None:
+                cls._collect_player_names(player_names, parsed_block)
             for pattern in cls._PLAYER_ENTRY_PATTERNS:
-                for match in pattern.finditer(candidate):
-                    player_id = match.group("player_id").strip()
-                    player_name = match.group("player_name").strip()
-                    if player_id and player_name and not player_name.startswith("Visitor-"):
-                        player_names[player_id] = player_name
+                for match in pattern.finditer(block):
+                    cls._remember_player_name(
+                        player_names,
+                        match.group("player_id"),
+                        match.group("player_name"),
+                    )
         return player_names
+
+    @classmethod
+    def _iter_player_candidate_blocks(cls, html: str):
+        seen: set[str] = set()
+        for candidate in (html, html.replace('\\"', '"')):
+            for pattern in (cls._PLAYERS_OBJECT_START_PATTERN, cls._PLAYER_ARRAY_START_PATTERN):
+                for match in pattern.finditer(candidate):
+                    start_index = match.end() - 1
+                    block = cls._extract_balanced_segment(candidate, start_index)
+                    if not block or block in seen:
+                        continue
+                    seen.add(block)
+                    yield block
+
+    @classmethod
+    def _extract_balanced_segment(cls, text: str, start_index: int) -> str | None:
+        if start_index < 0 or start_index >= len(text):
+            return None
+        opening_char = text[start_index]
+        closing_char = "}" if opening_char == "{" else "]" if opening_char == "[" else ""
+        if not closing_char:
+            return None
+
+        depth = 0
+        in_string = False
+        escaped = False
+        for index in range(start_index, len(text)):
+            char = text[index]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+                continue
+            if char == opening_char:
+                depth += 1
+                continue
+            if char == closing_char:
+                depth -= 1
+                if depth == 0:
+                    return text[start_index : index + 1]
+        return None
+
+    @staticmethod
+    def _try_parse_json_fragment(fragment: str) -> Any | None:
+        try:
+            return json.loads(fragment)
+        except ValueError:
+            return None
 
     async def _connect_and_subscribe(
         self,
@@ -563,9 +689,7 @@ class BgaClient:
             conn_info = info.get("conn_info")
             if not isinstance(conn_info, dict):
                 continue
-            username = str(conn_info.get("username") or "").strip()
-            if username:
-                player_names[player_id] = username
+            self._remember_player_name(player_names, player_id, conn_info.get("username"))
 
         return BgaNotificationState(
             highest_packet_id=None,
@@ -686,6 +810,18 @@ class BgaClient:
         states: list[BgaNotificationState] = []
         local_waiting_ids = list(current_waiting_ids)
         local_player_names = dict(known_player_names)
+        self._collect_player_names(local_player_names, push)
+        if local_player_names != known_player_names:
+            states.append(
+                BgaNotificationState(
+                    highest_packet_id=None,
+                    waiting_ids=None,
+                    player_names=dict(local_player_names),
+                    source="player_names_update",
+                    details={"probe": "push_only"},
+                    is_game_finished=False,
+                )
+            )
 
         pub = push.get("pub")
         if isinstance(pub, dict):
@@ -716,6 +852,7 @@ class BgaClient:
             return []
 
         player_names = dict(known_player_names)
+        self._collect_player_names(player_names, packet)
         waiting_ids = list(current_waiting_ids)
         source: str | None = None
         details: dict[str, str] = {}
@@ -726,7 +863,7 @@ class BgaClient:
 
             event_type = str(event.get("type") or "")
             event_args = event.get("args")
-            self._collect_player_names(player_names, event_args)
+            self._collect_player_names(player_names, event)
 
             if event_type == "gameStateMultipleActiveUpdate" and isinstance(event_args, list):
                 waiting_ids = [str(player_id) for player_id in event_args if str(player_id).isdigit()]
@@ -823,6 +960,17 @@ class BgaClient:
                 ]
 
         if source is None:
+            if player_names != known_player_names:
+                return [
+                    BgaNotificationState(
+                        highest_packet_id=packet_id,
+                        waiting_ids=None,
+                        player_names=player_names,
+                        source="player_names_update",
+                        details={"probe": "packet_names_only"},
+                        is_game_finished=False,
+                    )
+                ]
             return []
 
         return [
@@ -869,21 +1017,69 @@ class BgaClient:
         return candidate
 
     @classmethod
+    def _clean_player_name(cls, value: Any) -> str:
+        raw_value = str(value or "").strip()
+        if not raw_value:
+            return ""
+        unescaped = html_lib.unescape(raw_value)
+        without_tags = cls._HTML_TAG_PATTERN.sub("", unescaped)
+        normalized = re.sub(r"\s+", " ", without_tags).strip()
+        if not normalized or normalized.startswith("Visitor-"):
+            return ""
+        return normalized
+
+    @classmethod
+    def _remember_player_name(cls, player_names: dict[str, str], player_id: Any, player_name: Any) -> None:
+        normalized_player_id = cls._coerce_player_id(player_id)
+        normalized_player_name = cls._clean_player_name(player_name)
+        if normalized_player_id and normalized_player_name:
+            player_names[normalized_player_id] = normalized_player_name
+
+    @classmethod
+    def _extract_direct_name(cls, payload: dict[str, Any]) -> str:
+        normalized_items = {str(key).strip().casefold(): value for key, value in payload.items()}
+        for key in cls._PLAYER_NAME_KEYS:
+            candidate = cls._clean_player_name(normalized_items.get(key))
+            if candidate:
+                return candidate
+        return ""
+
+    @classmethod
+    def _looks_like_player_mapping(cls, payload: dict[str, Any]) -> bool:
+        normalized_keys = {str(key).strip().casefold() for key in payload}
+        if normalized_keys.intersection(cls._PLAYER_ID_KEYS):
+            return True
+        if normalized_keys.intersection(cls._PLAYERISH_KEYS):
+            return True
+        return False
+
+    @classmethod
     def _collect_player_names(cls, player_names: dict[str, str], event_args: Any) -> None:
-        if not isinstance(event_args, dict):
-            return
+        if isinstance(event_args, dict):
+            normalized_items = {str(key).strip().casefold(): value for key, value in event_args.items()}
+            candidate_ids = {
+                candidate_id
+                for key in cls._PLAYER_ID_KEYS
+                if (candidate_id := cls._coerce_player_id(normalized_items.get(key))) is not None
+            }
+            candidate_name = cls._extract_direct_name(event_args)
+            if candidate_name:
+                for candidate_id in candidate_ids:
+                    cls._remember_player_name(player_names, candidate_id, candidate_name)
 
-        player_id = cls._coerce_player_id(event_args.get("player_id"))
-        player_name = str(event_args.get("player_name") or "").strip()
-        if player_id and player_name:
-            player_names[player_id] = player_name
-
-        draft_rows = event_args.get("draftCrossedBuildings")
-        if isinstance(draft_rows, list):
-            for row in draft_rows:
-                if not isinstance(row, dict):
+            for raw_key, raw_value in event_args.items():
+                if not isinstance(raw_value, dict):
                     continue
-                nested_id = cls._coerce_player_id(row.get("player_id"))
-                nested_name = str(row.get("player_name") or "").strip()
-                if nested_id and nested_name:
-                    player_names[nested_id] = nested_name
+                key_player_id = cls._coerce_player_id(raw_key)
+                if key_player_id is None or not cls._looks_like_player_mapping(raw_value):
+                    continue
+                nested_name = cls._extract_direct_name(raw_value)
+                if nested_name:
+                    cls._remember_player_name(player_names, key_player_id, nested_name)
+
+            for raw_value in event_args.values():
+                cls._collect_player_names(player_names, raw_value)
+            return
+        if isinstance(event_args, list):
+            for item in event_args:
+                cls._collect_player_names(player_names, item)

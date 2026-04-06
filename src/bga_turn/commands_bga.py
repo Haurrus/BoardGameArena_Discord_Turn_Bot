@@ -26,6 +26,93 @@ class BgaCommands(commands.Cog):
         permissions = interaction.permissions
         return permissions.manage_guild or permissions.administrator
 
+    @staticmethod
+    def _truncate_text(value: str, max_length: int) -> str:
+        if max_length <= 0:
+            return ""
+        if len(value) <= max_length:
+            return value
+        if max_length == 1:
+            return "…"
+        return value[: max_length - 1].rstrip(", ") + "…"
+
+    @classmethod
+    def _format_bounded_list(cls, items: list[str], empty_text: str, max_length: int) -> str:
+        if max_length <= 0:
+            return ""
+        if not items:
+            return cls._truncate_text(empty_text, max_length)
+
+        included: list[str] = []
+        total_count = len(items)
+        for index, item in enumerate(items):
+            candidate_items = included + [item]
+            candidate = ", ".join(candidate_items)
+            remaining_count = total_count - index - 1
+            if remaining_count > 0:
+                suffix = tr("watch_detected_more", count=remaining_count)
+                candidate = f"{candidate}, {suffix}"
+            if len(candidate) <= max_length:
+                included.append(item)
+                continue
+            if not included:
+                return cls._truncate_text(item, max_length)
+            break
+
+        remaining_count = total_count - len(included)
+        if remaining_count <= 0:
+            return ", ".join(included)
+
+        suffix = tr("watch_detected_more", count=remaining_count)
+        while included:
+            candidate = f'{", ".join(included)}, {suffix}'
+            if len(candidate) <= max_length:
+                return candidate
+            included.pop()
+
+        return cls._truncate_text(suffix, max_length)
+
+    @classmethod
+    def _split_message_lines(cls, header: str, lines: list[str], max_length: int = 2000) -> list[str]:
+        current_chunk = cls._truncate_text(header, max_length)
+        chunks: list[str] = []
+
+        for line in lines:
+            candidate = f"{current_chunk}\n{line}" if current_chunk else line
+            if len(candidate) <= max_length:
+                current_chunk = candidate
+                continue
+
+            if current_chunk:
+                chunks.append(current_chunk)
+
+            if len(line) <= max_length:
+                current_chunk = line
+            else:
+                chunks.append(cls._truncate_text(line, max_length))
+                current_chunk = ""
+
+        if current_chunk:
+            chunks.append(current_chunk)
+        return chunks or [cls._truncate_text(header, max_length)]
+
+    @staticmethod
+    async def _send_ephemeral_chunks(
+        interaction: discord.Interaction,
+        chunks: list[str],
+    ) -> None:
+        if not chunks:
+            chunks = [""]
+
+        first_chunk, *remaining_chunks = chunks
+        if interaction.response.is_done():
+            await interaction.followup.send(first_chunk, ephemeral=True)
+        else:
+            await interaction.response.send_message(first_chunk, ephemeral=True)
+
+        for chunk in remaining_chunks:
+            await interaction.followup.send(chunk, ephemeral=True)
+
     @bga.command(name="link-member", description=tr("command_link_member_description"))
     @app_commands.describe(
         member=tr("command_link_member_member"),
@@ -127,9 +214,9 @@ class BgaCommands(commands.Cog):
             )
             for item in linked_users
         ]
-        await interaction.response.send_message(
-            tr("linked_header") + "\n" + "\n".join(lines),
-            ephemeral=True,
+        await self._send_ephemeral_chunks(
+            interaction,
+            self._split_message_lines(tr("linked_header"), lines),
         )
 
     @bga.command(name="watch", description=tr("command_watch_description"))
@@ -144,34 +231,18 @@ class BgaCommands(commands.Cog):
 
         try:
             table_id, table_url, base_url, gameserver, game_name = parse_public_table_url(table_or_url)
-            resolved_from_id_only = False
-        except ValueError:
-            try:
-                table_id = parse_table_id(table_or_url)
-            except ValueError as exc:
-                await interaction.response.send_message(str(exc), ephemeral=True)
-                return
-            table_url = ""
-            base_url = ""
-            gameserver = ""
-            game_name = ""
-            resolved_from_id_only = True
+        except ValueError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True)
+            return
 
         await interaction.response.defer(ephemeral=True, thinking=True)
-        try:
-            if resolved_from_id_only:
-                table_info = await asyncio.to_thread(self.bga_client.resolve_public_table_info_from_id, table_id)
-            else:
-                table_info = self.bga_client.build_public_table_info(
-                    table_id=table_id,
-                    table_url=table_url,
-                    base_url=base_url,
-                    gameserver=gameserver,
-                    game_name=game_name,
-                )
-        except BgaClientError as exc:
-            await interaction.followup.send(str(exc), ephemeral=True)
-            return
+        table_info = self.bga_client.build_public_table_info(
+            table_id=table_id,
+            table_url=table_url,
+            base_url=base_url,
+            gameserver=gameserver,
+            game_name=game_name,
+        )
 
         try:
             state = await self.bga_client.probe_public_table(table_info, known_player_names={})
@@ -227,35 +298,41 @@ class BgaCommands(commands.Cog):
                 )
             else:
                 detected_players.append(f"{player_name} ({player_id})")
-        detected_players_text = ", ".join(detected_players) or tr("watch_detected_none")
         init_status = (
             tr("watch_init_active")
             if subscription.is_initialized
             else tr("watch_init_waiting_event")
         )
-
-        await interaction.followup.send(
-            tr(
-                "watch_registered",
-                game_label=tr("label_game"),
-                game_name=format_game_name(table_info.game_name),
-                table_label=tr("label_table"),
-                table_id=table_info.table_id,
-                channel_label=tr("label_channel"),
-                channel_id=interaction.channel_id,
-                public_source_label=tr("label_public_source_initial"),
-                source=state.source,
-                players_detected_label=tr("label_players_detected_currently"),
-                players=detected_players_text,
-                url_label=tr("label_url"),
-                table_url=table_info.table_url,
-                init_state_label=tr("label_init_state"),
-                init_state=init_status,
-            ),
-            ephemeral=True,
+        message_kwargs = {
+            "game_label": tr("label_game"),
+            "game_name": format_game_name(table_info.game_name),
+            "table_label": tr("label_table"),
+            "table_id": table_info.table_id,
+            "channel_label": tr("label_channel"),
+            "channel_id": interaction.channel_id,
+            "public_source_label": tr("label_public_source_initial"),
+            "source": state.source,
+            "players_detected_label": tr("label_players_detected_currently"),
+            "url_label": tr("label_url"),
+            "table_url": table_info.table_url,
+            "init_state_label": tr("label_init_state"),
+            "init_state": init_status,
+        }
+        message_overhead = len(tr("watch_registered", players="", **message_kwargs))
+        max_players_length = max(0, 2000 - message_overhead)
+        detected_players_text = self._format_bounded_list(
+            detected_players,
+            tr("watch_detected_none"),
+            max_players_length,
         )
-        await self.monitor.refresh_now()
+        message_content = tr(
+            "watch_registered",
+            players=detected_players_text,
+            **message_kwargs,
+        )
 
+        await interaction.followup.send(message_content, ephemeral=True)
+        await self.monitor.refresh_now()
 
     @bga.command(name="unwatch", description=tr("command_unwatch_description"))
     @app_commands.describe(table_or_url=tr("command_unwatch_target"))
@@ -359,9 +436,9 @@ class BgaCommands(commands.Cog):
                 )
             )
 
-        await interaction.response.send_message(
-            tr("watchlist_header") + "\n" + "\n".join(lines),
-            ephemeral=True,
+        await self._send_ephemeral_chunks(
+            interaction,
+            self._split_message_lines(tr("watchlist_header"), lines),
         )
 
     @bga.command(name="status", description=tr("command_status_description"))
@@ -409,7 +486,7 @@ class BgaCommands(commands.Cog):
                 )
             )
 
-        await interaction.response.send_message(
-            tr("status_header") + "\n" + "\n".join(lines),
-            ephemeral=True,
+        await self._send_ephemeral_chunks(
+            interaction,
+            self._split_message_lines(tr("status_header"), lines),
         )

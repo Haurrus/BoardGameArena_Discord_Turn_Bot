@@ -48,8 +48,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "FR": "Ajoute une table BGA publique a surveiller dans ce salon",
     },
     "command_watch_target": {
-        "EN": "Full public BGA table URL or table number",
-        "FR": "URL complete publique de table BGA ou numero de table",
+        "EN": "Full public BGA table URL",
+        "FR": "URL publique complete de la table BGA",
     },
     "command_unwatch_description": {
         "EN": "Remove a watched BGA table from this channel",
@@ -142,6 +142,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "watch_detected_none": {
         "EN": "no player detected yet",
         "FR": "aucun joueur detecte pour l'instant",
+    },
+    "watch_detected_more": {
+        "EN": "(+{count} more)",
+        "FR": "(+{count} autres)",
     },
     "watch_init_active": {
         "EN": "already active",
@@ -276,8 +280,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "FR": "L'URL de table BGA est vide.",
     },
     "error_watch_requires_full_public_url": {
-        "EN": "Zero-auth mode requires a full public BGA table URL, not only an ID.",
-        "FR": "Le mode zero auth exige une URL complete de table BGA, pas seulement un ID.",
+        "EN": "The `/bga watch` command requires the full public BGA table URL.",
+        "FR": "La commande `/bga watch` exige l'URL publique complete de la table BGA.",
     },
     "error_url_missing_table_param": {
         "EN": "The BGA URL does not contain a valid `table=<id>` parameter.",
@@ -290,10 +294,6 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "error_url_missing_game_path": {
         "EN": "Could not extract the gameserver and game name from the BGA URL.",
         "FR": "Impossible d'extraire le gameserver et le nom du jeu depuis l'URL BGA.",
-    },
-    "error_resolve_public_table_url": {
-        "EN": "Could not resolve table {table_id} into a usable public URL.",
-        "FR": "Impossible de resoudre la table {table_id} en URL publique exploitable.",
     },
     "error_load_tableinfos": {
         "EN": "Could not load tableinfos for table {table_id}: {error}",
@@ -310,6 +310,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "error_tableinfos_unexpected": {
         "EN": "Unexpected public tableinfos payload for table {table_id}.",
         "FR": "tableinfos public inattendu pour la table {table_id}.",
+    },
+    "error_tableinfos_unexpected_payload": {
+        "EN": "Unexpected public tableinfos payload for table {table_id}: status={status} exception={exception} error={error}",
+        "FR": "Payload tableinfos public inattendu pour la table {table_id}: status={status} exception={exception} error={error}",
     },
     "error_tableinfos_missing_data": {
         "EN": "Public tableinfos does not contain a valid `data` block for table {table_id}.",
@@ -351,9 +355,25 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "EN": "Global slash commands synced ({count} commands).",
         "FR": "Slash commands globales synchronisees ({count} commandes).",
     },
+    "global_cleanup_done": {
+        "EN": "Deleted {count} stale global slash command(s) before guild sync.",
+        "FR": "Suppression de {count} ancienne(s) slash command(s) globale(s) avant la sync guilde.",
+    },
+    "global_cleanup_skipped_no_guild": {
+        "EN": "Skipping global slash command cleanup because DISCORD_GUILD_ID is not set.",
+        "FR": "Nettoyage des slash commands globales ignore car DISCORD_GUILD_ID n'est pas renseigne.",
+    },
     "tableinfos_status": {
         "EN": "Tableinfos {table_id} | status={status} | cancelled={cancelled} | time_end={time_end} | endgame_reason={endgame_reason} | finished={finished}",
         "FR": "Tableinfos {table_id} | status={status} | cancelled={cancelled} | time_end={time_end} | endgame_reason={endgame_reason} | finished={finished}",
+    },
+    "startup_tableinfos_check_failed": {
+        "EN": "Initial tableinfos check failed for table {table_id}: {error}",
+        "FR": "Le controle initial tableinfos a echoue pour la table {table_id}: {error}",
+    },
+    "idle_tableinfos_check_failed": {
+        "EN": "Idle tableinfos check failed for table {table_id}: {error}",
+        "FR": "Le controle tableinfos en periode d'inactivite a echoue pour la table {table_id}: {error}",
     },
     "invalid_json_frame": {
         "EN": "Ignored BGA websocket frame because JSON is invalid: {line}",
@@ -394,6 +414,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "table_finished_cleanup": {
         "EN": "Watches automatically removed for finished table {table_id}.",
         "FR": "Watchs supprimees automatiquement pour la table terminee {table_id}.",
+    },
+    "player_name_refresh_success": {
+        "EN": "Refreshed missing player names from the public page for table {table_id} ({count} resolved).",
+        "FR": "Les noms manquants ont ete completes depuis la page publique pour la table {table_id} ({count} resolu(s)).",
+    },
+    "player_name_refresh_failed": {
+        "EN": "Could not refresh player names from the public page for table {table_id}: {error}",
+        "FR": "Impossible de rafraichir les noms des joueurs depuis la page publique pour la table {table_id}: {error}",
     },
     "notification_sent": {
         "EN": "Notification sent for table {table_id} for IDs {waiting_ids}.",

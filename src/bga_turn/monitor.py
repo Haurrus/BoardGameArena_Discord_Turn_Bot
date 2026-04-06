@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 
 import discord
@@ -35,6 +36,7 @@ class BgaMonitor:
         self.bga_client = bga_client
         self._table_tasks: dict[str, asyncio.Task[None]] = {}
         self._active_turn_messages: dict[int, ActiveTurnMessage] = {}
+        self._last_player_name_refresh_at: dict[str, float] = {}
         self.sync_tables.change_interval(seconds=max(5, poll_seconds))
 
     def start(self) -> None:
@@ -48,6 +50,7 @@ class BgaMonitor:
             task.cancel()
         self._table_tasks.clear()
         self._active_turn_messages.clear()
+        self._last_player_name_refresh_at.clear()
 
     @tasks.loop(seconds=30)
     async def sync_tables(self) -> None:
@@ -69,6 +72,7 @@ class BgaMonitor:
             if table_id not in active_table_ids:
                 task = self._table_tasks.pop(table_id)
                 task.cancel()
+                self._last_player_name_refresh_at.pop(table_id, None)
                 LOGGER.info(tr("worker_stopped", table_id=table_id))
 
         for table_id in sorted(active_table_ids):
@@ -105,10 +109,21 @@ class BgaMonitor:
                 if not did_cleanup:
                     await self._cleanup_stale_table_messages(subscriptions, table_id)
                     did_cleanup = True
-                finished_publicly = await asyncio.to_thread(
-                    self.bga_client.fetch_public_table_finished_status,
-                    table_info,
-                )
+                finished_publicly = False
+                if self.bga_client.enable_tableinfos_fallback:
+                    try:
+                        finished_publicly = await asyncio.to_thread(
+                            self.bga_client.fetch_public_table_finished_status,
+                            table_info,
+                        )
+                    except BgaClientError as exc:
+                        LOGGER.warning(
+                            tr(
+                                "startup_tableinfos_check_failed",
+                                table_id=table_id,
+                                error=exc,
+                            )
+                        )
                 if finished_publicly:
                     await self._finalize_finished_table(subscriptions, table_id)
                     return
@@ -147,6 +162,14 @@ class BgaMonitor:
 
         merged_player_names = self._merge_player_names(subscriptions)
         merged_player_names.update(state.player_names)
+        waiting_ids = state.waiting_ids if state.waiting_ids is not None else self._select_previous_waiting_ids(subscriptions)
+        merged_player_names = await self._refresh_missing_player_names(
+            subscriptions=subscriptions,
+            table_id=table_id,
+            fallback_game_name=fallback_game_name,
+            waiting_ids=waiting_ids,
+            player_names=merged_player_names,
+        )
         await asyncio.to_thread(self.database.enrich_linked_users_from_players, merged_player_names)
 
         if state.is_game_finished:
@@ -190,7 +213,6 @@ class BgaMonitor:
                         waiting_ids=waiting_ids,
                         player_names=current_player_names,
                         game_label=format_game_name(game_name),
-                        signal_source=state.source,
                     )
                     if message is not None:
                         self._active_turn_messages[subscription.subscription_id] = ActiveTurnMessage(
@@ -207,7 +229,6 @@ class BgaMonitor:
                     waiting_ids=waiting_ids,
                     player_names=current_player_names,
                     game_label=format_game_name(game_name),
-                    signal_source=state.source,
                 )
                 if message is not None:
                     self._active_turn_messages[subscription.subscription_id] = ActiveTurnMessage(
@@ -222,7 +243,6 @@ class BgaMonitor:
                     waiting_ids=waiting_ids,
                     player_names=current_player_names,
                     game_label=format_game_name(game_name),
-                    signal_source=state.source,
                 )
 
             self.database.update_watch_state(
@@ -268,7 +288,6 @@ class BgaMonitor:
         waiting_ids: list[str],
         player_names: dict[str, str],
         game_label: str,
-        signal_source: str,
     ) -> None:
         active_message = self._active_turn_messages.get(subscription.subscription_id)
         previous_set = set(previous_waiting_ids)
@@ -293,7 +312,6 @@ class BgaMonitor:
                 waiting_ids=waiting_ids,
                 player_names=player_names,
                 game_label=game_label,
-                signal_source=signal_source,
             )
             if edited:
                 active_message.waiting_ids = list(waiting_ids)
@@ -317,7 +335,6 @@ class BgaMonitor:
             waiting_ids=waiting_ids,
             player_names=player_names,
             game_label=game_label,
-            signal_source=signal_source,
         )
         if message is not None:
             self._active_turn_messages[subscription.subscription_id] = ActiveTurnMessage(
@@ -333,7 +350,6 @@ class BgaMonitor:
         waiting_ids: list[str],
         player_names: dict[str, str],
         game_label: str,
-        signal_source: str
     ) -> discord.Message | None:
         channel = await self._resolve_channel(subscription, table_id)
         if channel is None:
@@ -345,7 +361,6 @@ class BgaMonitor:
             table_id=table_id,
             subscription=subscription,
             game_label=game_label,
-            signal_source=signal_source
         )
 
         try:
@@ -372,7 +387,6 @@ class BgaMonitor:
         waiting_ids: list[str],
         player_names: dict[str, str],
         game_label: str,
-        signal_source: str,
     ) -> bool:
         channel = await self._resolve_channel(subscription, table_id)
         if channel is None or not isinstance(channel, discord.TextChannel):
@@ -386,7 +400,6 @@ class BgaMonitor:
             table_id=table_id,
             subscription=subscription,
             game_label=game_label,
-            signal_source=signal_source
         )
         try:
             await message.edit(content=content)
@@ -484,7 +497,6 @@ class BgaMonitor:
         table_id: str,
         subscription: WatchSubscription,
         game_label: str,
-        signal_source: str,
     ) -> str:
         observed_waiting_players = {
             player_id: player_names.get(player_id, "")
@@ -521,6 +533,63 @@ class BgaMonitor:
             url_label=tr("label_url"),
             table_url=subscription.table_url or build_table_url(table_id),
         )
+
+    async def _refresh_missing_player_names(
+        self,
+        *,
+        subscriptions: list[WatchSubscription],
+        table_id: str,
+        fallback_game_name: str,
+        waiting_ids: list[str],
+        player_names: dict[str, str],
+    ) -> dict[str, str]:
+        missing_player_ids = [player_id for player_id in waiting_ids if not player_names.get(player_id, "").strip()]
+        if not missing_player_ids:
+            return player_names
+
+        last_refresh_at = self._last_player_name_refresh_at.get(table_id, 0.0)
+        now = time.monotonic()
+        if now - last_refresh_at < 60:
+            return player_names
+
+        reference = subscriptions[0]
+        if not reference.table_url or not reference.base_url:
+            return player_names
+
+        self._last_player_name_refresh_at[table_id] = now
+        table_info = self.bga_client.build_public_table_info(
+            table_id=reference.table_id,
+            table_url=reference.table_url,
+            base_url=reference.base_url,
+            gameserver=reference.gameserver or "",
+            game_name=reference.game_name or fallback_game_name,
+        )
+
+        try:
+            refreshed_names = await asyncio.to_thread(self.bga_client.fetch_public_player_names, table_info)
+        except BgaClientError as exc:
+            LOGGER.debug(tr("player_name_refresh_failed", table_id=table_id, error=exc))
+            return player_names
+
+        if not refreshed_names:
+            return player_names
+
+        merged_names = dict(player_names)
+        merged_names.update(refreshed_names)
+        resolved_missing_ids = [
+            player_id
+            for player_id in missing_player_ids
+            if merged_names.get(player_id, "").strip()
+        ]
+        if resolved_missing_ids:
+            LOGGER.info(
+                tr(
+                    "player_name_refresh_success",
+                    table_id=table_id,
+                    count=len(resolved_missing_ids),
+                )
+            )
+        return merged_names
 
     async def _resolve_channel(self, subscription: WatchSubscription, table_id: str) -> discord.abc.Messageable | None:
         channel = self.bot.get_channel(int(subscription.channel_id))

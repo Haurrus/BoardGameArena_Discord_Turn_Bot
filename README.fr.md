@@ -10,7 +10,7 @@ Le workflow cible est simple :
 - tu lies manuellement un membre Discord avec `/bga link-member @discord NomBGA IDBGA`
 - le lien peut etre partiel : seul le nom, seul l'ID, ou les deux
 - le bot enrichit automatiquement le champ manquant quand il observe une table
-- tu ajoutes une table BGA avec `/bga watch <url_complete>` ou `/bga watch <table_id>`
+- tu ajoutes une table BGA avec `/bga watch <url_complete>`
 - le bot detecte qui doit jouer
 - il cree, met a jour, supprime puis recree les messages Discord au rythme des tours
 - quand la partie est terminee, il supprime le dernier message actif et retire automatiquement la watch
@@ -83,9 +83,11 @@ Edite ensuite `.env` :
 ```env
 DISCORD_TOKEN=ton_token_bot
 DISCORD_GUILD_ID=
+DISCORD_CLEAR_GLOBAL_COMMANDS=0
 BGA_POLL_SECONDS=15
 BGA_DB_PATH=bga_bot.db
 BGA_WS_URL=wss://ws-x1.boardgamearena.com/connection/websocket
+BGA_ENABLE_TABLEINFOS_FALLBACK=0
 LOG_LEVEL=INFO
 BOT_LANG=EN
 ```
@@ -94,9 +96,11 @@ BOT_LANG=EN
 
 - `DISCORD_TOKEN` : token du bot Discord
 - `DISCORD_GUILD_ID` : optionnel, permet une synchro quasi immediate des slash commands sur un serveur precis
+- `DISCORD_CLEAR_GLOBAL_COMMANDS` : optionnel, mets `1` une seule fois pour supprimer d'anciennes slash commands globales avant la sync guilde, puis remets `0`
 - `BGA_POLL_SECONDS` : rythme de supervision du scheduler du monitor
 - `BGA_DB_PATH` : chemin du fichier SQLite
 - `BGA_WS_URL` : endpoint websocket public BGA
+- `BGA_ENABLE_TABLEINFOS_FALLBACK` : optionnel, `0` par defaut ; si tu mets `1`, tu reactive le fallback HTTP `tableinfos.html` utilise quand le websocket devient silencieux
 - `LOG_LEVEL` : niveau de logs console
 - `BOT_LANG` : langue du bot, appliquee aux logs internes, aux reponses des slash commands et aux messages Discord, `EN` par defaut, `FR` pour le francais
 
@@ -131,6 +135,8 @@ python bot.py
 ```
 
 Si `DISCORD_GUILD_ID` est renseigne, les slash commands seront synchronisees sur cette guilde. Sinon, elles seront synchronisees globalement, ce qui peut prendre plus de temps.
+
+Si tu utilisais auparavant des slash commands globales et que tu vois maintenant des doublons avec les commandes de guilde, mets `DISCORD_CLEAR_GLOBAL_COMMANDS=1` le temps d'un demarrage, laisse le bot supprimer les anciennes commandes globales, puis remets `0`.
 
 ### Licence
 
@@ -241,15 +247,8 @@ Syntaxe :
 /bga watch https://en.boardgamearena.com/15/sevenwondersdice?table=827248309
 ```
 
-ou
-
-```text
-/bga watch 827248309
-```
-
 Regles :
-- la commande accepte une URL complete publique de table ou un simple numero de table
-- si seul le numero est fourni, le bot resout automatiquement l'URL publique a partir de `tableinfos`
+- la commande exige l'URL publique complete de la table BGA
 - la watch est associee au serveur et au salon courant
 - le worker websocket est demarre immediatement apres la commande, sans attendre le prochain cycle du scheduler
 
@@ -397,7 +396,8 @@ Pour detecter la fin d'une partie, le bot utilise en plus :
 1. `tableInfosChanged` avec `status = finished`
 2. `tableInfosChanged.reload_reason = tableDestroy`
 3. les evenements de fin visibles dans le flux (`End of game`, `simpleNote`, `simpleNode`)
-4. un controle de secours sur `tableinfos.html` quand le websocket devient silencieux
+
+Par defaut, le bot n'utilise plus `tableinfos.html` comme fallback de fin de partie, car cet endpoint public est trop incoherent sans session BGA authentifiee. Si tu veux retrouver ce comportement historique, mets `BGA_ENABLE_TABLEINFOS_FALLBACK=1`.
 
 #### 4. Difference mono-actif / multi-actif
 
@@ -472,7 +472,8 @@ Responsabilites :
 - extrait le bootstrap HTML utile
 - ouvre et maintient la connexion websocket publique BGA
 - parse les messages websocket
-- detecte les fins de partie via websocket ou via `tableinfos.html`
+- detecte les fins de partie via websocket
+- peut utiliser `tableinfos.html` comme fallback legacy uniquement si tu l'actives explicitement
 - produit des objets `BgaNotificationState`
 
 #### `src/bga_turn/monitor.py`
