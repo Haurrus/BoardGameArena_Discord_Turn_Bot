@@ -81,8 +81,8 @@ Adapte simplement les commandes d'activation de l'environnement virtuel et de co
 Edite ensuite `.env` :
 
 ```env
-DISCORD_TOKEN=ton_token_bot
-DISCORD_GUILD_ID=
+DISCORD_TOKEN=colle_ici_le_token_du_bot
+DISCORD_GUILD_ID=colle_ici_l_id_du_serveur
 DISCORD_CLEAR_GLOBAL_COMMANDS=0
 BGA_POLL_SECONDS=15
 BGA_DB_PATH=bga_bot.db
@@ -94,8 +94,8 @@ BOT_LANG=EN
 
 ### Signification des variables `.env`
 
-- `DISCORD_TOKEN` : token du bot Discord
-- `DISCORD_GUILD_ID` : optionnel, permet une synchro quasi immediate des slash commands sur un serveur precis
+- `DISCORD_TOKEN` : obligatoire ; copie-le depuis le portail developpeur Discord, dans ton application, onglet `Bot`
+- `DISCORD_GUILD_ID` : optionnel mais fortement recommande pour la premiere configuration ; copie l'ID de ton serveur depuis le client Discord apres avoir active le mode developpeur
 - `DISCORD_CLEAR_GLOBAL_COMMANDS` : optionnel, mets `1` une seule fois pour supprimer d'anciennes slash commands globales avant la sync guilde, puis remets `0`
 - `BGA_POLL_SECONDS` : rythme de supervision du scheduler du monitor
 - `BGA_DB_PATH` : chemin du fichier SQLite
@@ -104,15 +104,78 @@ BOT_LANG=EN
 - `LOG_LEVEL` : niveau de logs console
 - `BOT_LANG` : langue du bot, appliquee aux logs internes, aux reponses des slash commands et aux messages Discord, `EN` par defaut, `FR` pour le francais
 
-### Creer et inviter le bot Discord
+### Configuration Discord pas a pas
+
+#### 1. Creer l'application Discord et le bot
 
 1. Va sur `https://discord.com/developers/applications`
-2. Cree une application
-3. Va dans l'onglet `Bot`
-4. Recupere le token du bot et place-le dans `.env`
-5. Va dans `OAuth2 > URL Generator`
-6. Coche `bot` et `applications.commands`
-7. Invite le bot sur ton serveur
+2. Clique sur `New Application`
+3. Donne un nom a l'application, puis cree-la
+4. Ouvre l'application et va dans l'onglet `Bot`
+5. Si Discord te le demande, clique sur `Add Bot`
+6. Dans l'onglet `Bot` :
+   - clique sur `Reset Token` ou `Copy` pour recuperer le token du bot
+   - colle cette valeur dans `DISCORD_TOKEN=...` dans ton `.env`
+   - garde ce token secret ; s'il fuite, regenere-le immediatement
+7. Tu n'as pas besoin d'activer les intents privilegies pour ce projet
+
+#### 2. Inviter le bot sur ton serveur Discord
+
+1. Dans le portail developpeur Discord, ouvre la page `Installation`
+2. Pour `Guild Install`, verifie que le lien d'installation contient :
+   - `bot`
+   - `applications.commands`
+3. Pour les permissions du bot, le minimum teste est :
+   - `View Channels`
+   - `Send Messages`
+   - `Embed Links`
+   - `Read Message History`
+4. Copie le lien d'installation genere
+5. Ouvre ce lien dans ton navigateur
+6. Choisis le serveur Discord sur lequel tu veux installer le bot
+7. Valide l'installation
+
+Si ton interface du portail developpeur affiche encore `OAuth2 > URL Generator` au lieu de `Installation`, fais la meme chose la-bas :
+- coche `bot`
+- coche `applications.commands`
+- coche les permissions ci-dessus
+- ouvre l'URL generee et ajoute le bot a ton serveur
+
+#### 3. Recuperer `DISCORD_GUILD_ID`
+
+`DISCORD_GUILD_ID` est optionnel, mais c'est la methode la plus simple pour faire apparaitre les slash commands presque instantanement pendant la mise en place du bot.
+
+Pour le recuperer :
+
+1. Ouvre l'application Discord
+2. Va dans `User Settings > Advanced`
+3. Active `Developer Mode`
+4. Fais un clic droit sur l'icone ou le nom de ton serveur
+5. Clique sur `Copy Server ID`
+6. Colle cette valeur dans `DISCORD_GUILD_ID=...` dans ton `.env`
+
+Si tu laisses `DISCORD_GUILD_ID` vide, le bot fonctionnera quand meme, mais les mises a jour des slash commands peuvent prendre plus de temps car elles seront synchronisees globalement.
+
+#### 4. Exemple de `.env` pour une premiere installation
+
+```env
+DISCORD_TOKEN=colle_ici_le_token_du_bot
+DISCORD_GUILD_ID=colle_ici_l_id_du_serveur
+DISCORD_CLEAR_GLOBAL_COMMANDS=0
+BGA_POLL_SECONDS=15
+BGA_DB_PATH=bga_bot.db
+BGA_WS_URL=wss://ws-x1.boardgamearena.com/connection/websocket
+BGA_ENABLE_TABLEINFOS_FALLBACK=0
+LOG_LEVEL=INFO
+BOT_LANG=EN
+```
+
+Explication rapide :
+- `DISCORD_TOKEN` : le token secret copie depuis l'onglet `Bot` du portail developpeur Discord
+- `DISCORD_GUILD_ID` : l'ID de ton serveur Discord, copie depuis le client Discord avec le mode developpeur active
+- `BOT_LANG` : mets `EN` pour l'anglais ou `FR` pour le francais
+
+Si les slash commands apparaissent en double parce que tu utilisais auparavant des commandes globales, mets `DISCORD_CLEAR_GLOBAL_COMMANDS=1` le temps d'un demarrage, laisse le bot supprimer les anciennes commandes globales, puis remets `0`.
 
 ### Lancement
 

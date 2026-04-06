@@ -81,8 +81,8 @@ Adjust the virtual environment activation and file copy commands to your shell i
 Then edit `.env`:
 
 ```env
-DISCORD_TOKEN=your_bot_token
-DISCORD_GUILD_ID=
+DISCORD_TOKEN=paste_your_bot_token_here
+DISCORD_GUILD_ID=paste_your_server_id_here
 DISCORD_CLEAR_GLOBAL_COMMANDS=0
 BGA_POLL_SECONDS=15
 BGA_DB_PATH=bga_bot.db
@@ -94,8 +94,8 @@ BOT_LANG=EN
 
 ### `.env` variables
 
-- `DISCORD_TOKEN`: Discord bot token
-- `DISCORD_GUILD_ID`: optional, enables near-instant slash command sync for one guild
+- `DISCORD_TOKEN`: required; copy it from the Discord Developer Portal, in your application, under `Bot`
+- `DISCORD_GUILD_ID`: optional but strongly recommended for the first setup; copy your server ID from the Discord client after enabling Developer Mode
 - `DISCORD_CLEAR_GLOBAL_COMMANDS`: optional, set to `1` once to delete stale global slash commands before guild sync, then set it back to `0`
 - `BGA_POLL_SECONDS`: supervision interval for the monitor scheduler
 - `BGA_DB_PATH`: SQLite file path
@@ -104,15 +104,78 @@ BOT_LANG=EN
 - `LOG_LEVEL`: console log level
 - `BOT_LANG`: bot language for internal logs, slash command responses, and Discord messages, `EN` by default, `FR` for French
 
-### Create and invite the Discord bot
+### Discord setup for beginners
+
+#### 1. Create the Discord application and bot
 
 1. Go to `https://discord.com/developers/applications`
-2. Create an application
-3. Open the `Bot` tab
-4. Copy the bot token into `.env`
-5. Open `OAuth2 > URL Generator`
-6. Check `bot` and `applications.commands`
-7. Invite the bot to your server
+2. Click `New Application`
+3. Give the application a name, then create it
+4. Open the application and go to the `Bot` tab
+5. If Discord asks, click `Add Bot`
+6. In the `Bot` tab:
+   - click `Reset Token` or `Copy` to get the bot token
+   - paste that value into `DISCORD_TOKEN=...` in your `.env`
+   - keep this token secret; if it is ever exposed, regenerate it immediately
+7. You do not need to enable privileged intents for this project
+
+#### 2. Invite the bot to your Discord server
+
+1. In the Discord Developer Portal, open the `Installation` page
+2. For `Guild Install`, make sure the install link includes:
+   - `bot`
+   - `applications.commands`
+3. For the bot permissions, the tested minimum is:
+   - `View Channels`
+   - `Send Messages`
+   - `Embed Links`
+   - `Read Message History`
+4. Copy the generated install link
+5. Open that link in your browser
+6. Choose the Discord server where you want the bot
+7. Approve the installation
+
+If your Developer Portal UI still shows `OAuth2 > URL Generator` instead of `Installation`, do the same there:
+- select `bot`
+- select `applications.commands`
+- select the permissions above
+- open the generated URL and add the bot to your server
+
+#### 3. Get `DISCORD_GUILD_ID`
+
+`DISCORD_GUILD_ID` is optional, but it is the easiest way to make slash commands appear almost immediately while you are setting the bot up.
+
+To get it:
+
+1. Open the Discord app
+2. Go to `User Settings > Advanced`
+3. Enable `Developer Mode`
+4. Right-click your server icon or server name
+5. Click `Copy Server ID`
+6. Paste that value into `DISCORD_GUILD_ID=...` in your `.env`
+
+If you leave `DISCORD_GUILD_ID` empty, the bot still works, but slash command updates can take longer to appear because they are synced globally.
+
+#### 4. Example `.env` for a first setup
+
+```env
+DISCORD_TOKEN=paste_your_bot_token_here
+DISCORD_GUILD_ID=paste_your_server_id_here
+DISCORD_CLEAR_GLOBAL_COMMANDS=0
+BGA_POLL_SECONDS=15
+BGA_DB_PATH=bga_bot.db
+BGA_WS_URL=wss://ws-x1.boardgamearena.com/connection/websocket
+BGA_ENABLE_TABLEINFOS_FALLBACK=0
+LOG_LEVEL=INFO
+BOT_LANG=EN
+```
+
+Quick explanation:
+- `DISCORD_TOKEN`: the secret token copied from the `Bot` tab in the Discord Developer Portal
+- `DISCORD_GUILD_ID`: your Discord server ID, copied from the Discord client with Developer Mode enabled
+- `BOT_LANG`: set `EN` for English or `FR` for French
+
+If slash commands appear twice because you previously used global commands, set `DISCORD_CLEAR_GLOBAL_COMMANDS=1` for one startup, let the bot delete the old global commands, then set it back to `0`.
 
 ### Run the bot
 
