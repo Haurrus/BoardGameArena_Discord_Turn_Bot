@@ -323,6 +323,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "EN": "Websocket connection closed: {error}",
         "FR": "Connexion websocket fermee: {error}",
     },
+    "error_websocket_handshake_rejected": {
+        "EN": "BGA websocket rejected the handshake for table {table_id}: HTTP {status_code} (likely a transient BGA/Cloudflare outage).",
+        "FR": "BGA a rejete la poignee de main websocket pour la table {table_id} : HTTP {status_code} (probablement une coupure transitoire BGA/Cloudflare).",
+    },
+    "error_websocket_handshake_timeout": {
+        "EN": "BGA websocket handshake timed out for table {table_id} on {websocket_url}.",
+        "FR": "La poignee de main websocket BGA a expire pour la table {table_id} sur {websocket_url}.",
+    },
     "error_load_public_page": {
         "EN": "Could not load public page {table_url}: {error}",
         "FR": "Impossible de charger la page publique {table_url}: {error}",

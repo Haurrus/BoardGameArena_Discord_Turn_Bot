@@ -6,12 +6,14 @@ import json
 import logging
 import re
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
 import requests
 import websockets
 from websockets import ConnectionClosed
+from websockets.exceptions import InvalidStatus
 
 from .i18n import tr
 from .models import BgaNotificationState, BgaTableInfo
@@ -36,6 +38,7 @@ class SpectatorBootstrap:
     user_id: str
     username: str
     credentials: str
+    websocket_url: str | None = None
 
 
 class BgaClient:
@@ -114,6 +117,10 @@ class BgaClient:
     )
     _MULTIACTIVE_PATTERN = re.compile(
         r'"multiactive"\s*:\s*\[(?P<ids>[^\]]*)\]',
+        re.DOTALL,
+    )
+    _CENTRIFUGE_WS_PATTERN = re.compile(
+        r'"transport"\s*:\s*"websocket"\s*,\s*"endpoint"\s*:\s*"(?P<url>wss[^"]+)"',
         re.DOTALL,
     )
     _LEGACY_BOOTSTRAP_PATTERNS = [
@@ -262,7 +269,7 @@ class BgaClient:
         bootstrap, bootstrap_state = await asyncio.to_thread(self._load_public_bootstrap, table_info)
         pending_items: list[dict[str, Any]] = []
 
-        async with self._connect(table_info) as websocket:
+        async with self._connect(table_info, websocket_url=bootstrap.websocket_url) as websocket:
             await self._connect_and_subscribe(websocket, table_info, bootstrap, pending_items)
             presence_state = await self._request_presence(websocket, table_info, known_names, pending_items)
             if presence_state is not None:
@@ -328,7 +335,7 @@ class BgaClient:
         bootstrap, bootstrap_state = await asyncio.to_thread(self._load_public_bootstrap, table_info)
         pending_items: list[dict[str, Any]] = []
 
-        async with self._connect(table_info) as websocket:
+        async with self._connect(table_info, websocket_url=bootstrap.websocket_url) as websocket:
             await self._connect_and_subscribe(websocket, table_info, bootstrap, pending_items)
             presence_state = await self._request_presence(websocket, table_info, known_player_names, pending_items)
             if presence_state is not None:
@@ -435,6 +442,7 @@ class BgaClient:
 
     @classmethod
     def _extract_spectator_bootstrap(cls, html: str) -> SpectatorBootstrap | None:
+        websocket_url = cls._extract_websocket_url(html)
         current_name_match = cls._CURRENT_PLAYER_NAME_PATTERN.search(html)
         setup_match = cls._COMPLETE_SETUP_PATTERN.search(html)
         if current_name_match and setup_match:
@@ -442,6 +450,7 @@ class BgaClient:
                 user_id=setup_match.group("user_id").strip(),
                 username=current_name_match.group("username").strip(),
                 credentials=setup_match.group("credentials").strip(),
+                websocket_url=websocket_url,
             )
 
         candidates = [html, html.replace('\\"', '"')]
@@ -459,8 +468,16 @@ class BgaClient:
                     user_id=user_id,
                     username=username,
                     credentials=credentials,
+                    websocket_url=websocket_url,
                 )
         return None
+
+    @classmethod
+    def _extract_websocket_url(cls, html: str) -> str | None:
+        match = cls._CENTRIFUGE_WS_PATTERN.search(html)
+        if match is None:
+            return None
+        return match.group("url").replace("\\/", "/")
 
     @classmethod
     def _extract_initial_state_from_html(cls, html: str) -> BgaNotificationState | None:
@@ -779,19 +796,39 @@ class BgaClient:
                 return "\n".join(json.dumps(item) for item in items)
             return raw_message
 
-    def _connect(self, table_info: BgaTableInfo):
-        return websockets.connect(
-            self.websocket_url,
-            origin=table_info.base_url,
-            user_agent_header=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/146.0.0.0 Safari/537.36"
-            ),
-            open_timeout=self.timeout,
-            ping_interval=None,
-            ping_timeout=None,
-        )
+    @asynccontextmanager
+    async def _connect(self, table_info: BgaTableInfo, websocket_url: str | None = None):
+        effective_url = websocket_url or self.websocket_url
+        try:
+            async with websockets.connect(
+                effective_url,
+                origin=table_info.base_url,
+                user_agent_header=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/146.0.0.0 Safari/537.36"
+                ),
+                open_timeout=self.timeout,
+                ping_interval=None,
+                ping_timeout=None,
+            ) as websocket:
+                yield websocket
+        except InvalidStatus as exc:
+            raise BgaClientError(
+                tr(
+                    "error_websocket_handshake_rejected",
+                    table_id=table_info.table_id,
+                    status_code=exc.response.status_code,
+                )
+            ) from exc
+        except TimeoutError as exc:
+            raise BgaClientError(
+                tr(
+                    "error_websocket_handshake_timeout",
+                    table_id=table_info.table_id,
+                    websocket_url=effective_url,
+                )
+            ) from exc
 
     def _extract_states_from_frame(
         self,
