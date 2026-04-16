@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import discord
 from discord.ext import tasks
 
-from .bga_client import BgaClient, BgaClientError, BgaNotPublicError
+from .bga_client import BgaClient, BgaClientError, BgaNotPublicError, BgaTableUnavailableError
 from .database import Database
 from .i18n import tr
 from .models import LinkedUser, WatchSubscription
@@ -142,6 +142,14 @@ class BgaMonitor:
                 backoff_seconds = 5
             except asyncio.CancelledError:
                 raise
+            except BgaTableUnavailableError as exc:
+                LOGGER.warning(tr("table_unavailable_autounwatch", table_id=table_id, error=exc))
+                subscriptions = self._subscriptions_for_table(table_id)
+                if subscriptions:
+                    await self._finalize_finished_table(subscriptions, table_id)
+                else:
+                    self._table_tasks.pop(table_id, None)
+                return
             except BgaNotPublicError as exc:
                 LOGGER.warning(tr("table_not_public", table_id=table_id, error=exc))
                 await asyncio.sleep(backoff_seconds)

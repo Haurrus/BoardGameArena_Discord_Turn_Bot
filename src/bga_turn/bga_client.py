@@ -27,6 +27,10 @@ class BgaNotPublicError(BgaClientError):
     pass
 
 
+class BgaTableUnavailableError(BgaNotPublicError):
+    pass
+
+
 @dataclass(frozen=True)
 class SpectatorBootstrap:
     user_id: str
@@ -106,6 +110,10 @@ class BgaClient:
     )
     _GAMESTATES_BLOCK_PATTERN = re.compile(
         r'"gamestates":\{(?P<body>.*?)\},"notifications"',
+        re.DOTALL,
+    )
+    _MULTIACTIVE_PATTERN = re.compile(
+        r'"multiactive"\s*:\s*\[(?P<ids>[^\]]*)\]',
         re.DOTALL,
     )
     _LEGACY_BOOTSTRAP_PATTERNS = [
@@ -411,6 +419,13 @@ class BgaClient:
         if response.status_code >= 400:
             raise BgaNotPublicError(tr("error_public_page_http", status_code=response.status_code))
 
+        if table_info.gameserver and table_info.game_name:
+            expected_path_segment = f"/{table_info.gameserver}/{table_info.game_name}"
+            if expected_path_segment not in response.url:
+                raise BgaTableUnavailableError(
+                    tr("error_table_redirected_to_lobby", final_url=response.url)
+                )
+
         html = response.text
         bootstrap = self._extract_spectator_bootstrap(html)
         if bootstrap is None:
@@ -478,6 +493,17 @@ class BgaClient:
             return None
 
         state_type = cls._extract_gamestate_type(html, state_id)
+        if state_type == "multipleactiveplayer":
+            multiactive_ids = cls._extract_multiactive_player_ids(html)
+            if multiactive_ids:
+                return BgaNotificationState(
+                    highest_packet_id=None,
+                    waiting_ids=multiactive_ids,
+                    player_names=player_names,
+                    source="page_bootstrap_multiactive",
+                    details={"state_id": state_id, "state_type": state_type},
+                    is_game_finished=False,
+                )
         if state_type is None or state_type == "multipleactiveplayer":
             if player_names:
                 details: dict[str, str] = {"bootstrap": "players_only", "state_id": state_id}
@@ -516,6 +542,13 @@ class BgaClient:
             details={"state_id": state_id, "state_type": state_type},
             is_game_finished=False,
         )
+
+    @classmethod
+    def _extract_multiactive_player_ids(cls, html: str) -> list[str]:
+        match = cls._MULTIACTIVE_PATTERN.search(html)
+        if match is None:
+            return []
+        return re.findall(r"\d+", match.group("ids"))
 
     @classmethod
     def _extract_gamestate_type(cls, html: str, state_id: str) -> str | None:

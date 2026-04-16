@@ -375,6 +375,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "EN": "Idle tableinfos check failed for table {table_id}: {error}",
         "FR": "Le controle tableinfos en periode d'inactivite a echoue pour la table {table_id}: {error}",
     },
+    "error_table_redirected_to_lobby": {
+        "EN": "BGA redirected the public page to the table lobby ({final_url}); the table is no longer spectable.",
+        "FR": "BGA a redirige la page publique vers le lobby ({final_url}); la table n'est plus observable.",
+    },
+    "table_unavailable_autounwatch": {
+        "EN": "Table {table_id} is no longer publicly spectable (likely finished or private): {error}. Auto-unwatching.",
+        "FR": "Table {table_id} n'est plus observable publiquement (probablement terminee ou privee) : {error}. Desactivation automatique de la surveillance.",
+    },
     "invalid_json_frame": {
         "EN": "Ignored BGA websocket frame because JSON is invalid: {line}",
         "FR": "Trame websocket BGA ignoree car JSON invalide: {line}",
