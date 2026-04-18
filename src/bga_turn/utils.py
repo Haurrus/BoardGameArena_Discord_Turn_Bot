@@ -58,7 +58,7 @@ def parse_public_table_url(value: str) -> tuple[str, str, str, str, str]:
     if not gameserver or not game_name:
         raise ValueError(tr("error_url_missing_game_path"))
 
-    base_url = f"{parsed.scheme}://{parsed.netloc}"
+    base_url = BASE_URL
     normalized_url = f"{base_url}/{gameserver}/{game_name}?table={table_id}"
     return table_id, normalized_url, base_url, gameserver, game_name
 
