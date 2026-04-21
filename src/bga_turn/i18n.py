@@ -471,6 +471,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "EN": "Failed to delete Discord message for table {table_id}: {error}",
         "FR": "Echec de suppression du message Discord pour la table {table_id}: {error}",
     },
+    "orphan_turn_message_deleted": {
+        "EN": "Orphan turn message deleted for subscription {subscription_id}.",
+        "FR": "Message de tour orphelin supprime pour la souscription {subscription_id}.",
+    },
+    "orphan_turn_message_delete_failed": {
+        "EN": "Failed to delete orphan turn message for subscription {subscription_id}: {error}",
+        "FR": "Echec de suppression du message de tour orphelin pour la souscription {subscription_id}: {error}",
+    },
     "stale_message_delete_failed": {
         "EN": "Failed to delete an old message for table {table_id} in channel {channel_id}: {error}",
         "FR": "Impossible de supprimer un ancien message de la table {table_id} dans le salon {channel_id}: {error}",

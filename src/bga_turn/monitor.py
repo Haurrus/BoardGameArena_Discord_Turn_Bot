@@ -66,7 +66,15 @@ class BgaMonitor:
 
         for subscription_id in list(self._active_turn_messages):
             if subscription_id not in active_subscription_ids:
-                self._active_turn_messages.pop(subscription_id, None)
+                active_message = self._active_turn_messages.pop(subscription_id, None)
+                if active_message is not None:
+                    try:
+                        await active_message.message.delete()
+                        LOGGER.info(tr("orphan_turn_message_deleted", subscription_id=subscription_id))
+                    except discord.NotFound:
+                        pass
+                    except discord.DiscordException as exc:
+                        LOGGER.error(tr("orphan_turn_message_delete_failed", subscription_id=subscription_id, error=exc))
 
         for table_id in list(self._table_tasks):
             if table_id not in active_table_ids:
