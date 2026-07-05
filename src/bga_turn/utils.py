@@ -49,7 +49,13 @@ def parse_public_table_url(value: str) -> tuple[str, str, str, str, str]:
         raise ValueError(tr("error_url_missing_table_param"))
     table_id = table_values[0]
 
+    base_url = BASE_URL
     path_parts = [part for part in parsed.path.split("/") if part]
+
+    if len(path_parts) == 1 and path_parts[0].strip().lower() in {"tableview", "table"}:
+        normalized_url = f"{base_url}/tableview?table={table_id}"
+        return table_id, normalized_url, base_url, "", ""
+
     if len(path_parts) < 2:
         raise ValueError(tr("error_url_missing_public_path"))
 
@@ -58,7 +64,6 @@ def parse_public_table_url(value: str) -> tuple[str, str, str, str, str]:
     if not gameserver or not game_name:
         raise ValueError(tr("error_url_missing_game_path"))
 
-    base_url = BASE_URL
     normalized_url = f"{base_url}/{gameserver}/{game_name}?table={table_id}"
     return table_id, normalized_url, base_url, gameserver, game_name
 
