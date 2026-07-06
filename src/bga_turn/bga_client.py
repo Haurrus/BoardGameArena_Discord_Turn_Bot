@@ -5,6 +5,7 @@ import html as html_lib
 import json
 import logging
 import re
+import threading
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
@@ -137,6 +138,10 @@ class BgaClient:
         ),
     ]
 
+    # Player rosters are stable for the lifetime of a game, so cache them to avoid
+    # re-fetching `tableinfos` on every websocket reconnect / bootstrap.
+    _ROSTER_CACHE_TTL_SECONDS = 300.0
+
     def __init__(
         self,
         timeout: int = 30,
@@ -148,6 +153,12 @@ class BgaClient:
         self.websocket_url = websocket_url
         self.enable_tableinfos_fallback = enable_tableinfos_fallback
         self._request_token: str | None = None
+        # The client is shared across concurrent table workers (asyncio + to_thread).
+        # `requests.Session` and the request token are not safe for concurrent use,
+        # so serialize HTTP access; the roster cache has its own lock.
+        self._http_lock = threading.Lock()
+        self._roster_cache_lock = threading.Lock()
+        self._roster_cache: dict[str, tuple[float, dict[str, str]]] = {}
         self._http = requests.Session()
         self._http.headers.update(
             {
@@ -193,7 +204,7 @@ class BgaClient:
         base = (base_url or BASE_URL).rstrip("/")
         tableview_url = f"{base}/tableview?table={table_id}"
         try:
-            response = self._http.get(tableview_url, timeout=self.timeout)
+            response = self._http_get(tableview_url, timeout=self.timeout)
         except requests.RequestException as exc:
             raise BgaClientError(
                 tr("error_load_public_page", table_url=tableview_url, error=exc)
@@ -202,18 +213,19 @@ class BgaClient:
         if response.status_code >= 400:
             raise BgaNotPublicError(tr("error_public_page_http", status_code=response.status_code))
 
-        token_match = self._REQUEST_TOKEN_PATTERN.search(response.text)
-        if token_match is None:
-            raise BgaNotPublicError(tr("error_resolve_missing_request_token", table_id=table_id))
-        self._request_token = token_match.group("token")
-
-        data = self._fetch_public_tableinfos_data(table_id=table_id, base_url=base)
+        data = self._fetch_tableinfos_with_token(
+            table_id=table_id, base_url=base, html=response.text
+        )
         gameserver = str(data.get("gameserver") or "").strip()
         game_name = str(data.get("game_name") or "").strip()
         if not gameserver.isdigit() or not game_name:
             raise BgaTableUnavailableError(
                 tr("error_resolve_missing_game_server", table_id=table_id)
             )
+
+        # Reuse the roster we just paid for so the subsequent bootstrap does not
+        # re-fetch tableinfos.
+        self._cache_roster(table_id, self._extract_roster_from_tableinfos(data))
 
         table_url = f"{base}/{gameserver}/{game_name}?table={table_id}"
         LOGGER.info(
@@ -265,7 +277,7 @@ class BgaClient:
 
     def fetch_public_player_names(self, table_info: BgaTableInfo) -> dict[str, str]:
         try:
-            response = self._http.get(table_info.table_url, timeout=self.timeout)
+            response = self._http_get(table_info.table_url, timeout=self.timeout)
         except requests.RequestException as exc:
             raise BgaClientError(
                 tr("error_load_public_page", table_url=table_info.table_url, error=exc)
@@ -282,6 +294,39 @@ class BgaClient:
             return roster
         return self._extract_player_names_from_html(response.text)
 
+    def _http_get(self, url: str, **kwargs: Any) -> requests.Response:
+        # Serialize access to the shared, non-thread-safe requests.Session.
+        with self._http_lock:
+            return self._http.get(url, **kwargs)
+
+    def _fetch_tableinfos_with_token(
+        self, *, table_id: str, base_url: str, html: str
+    ) -> dict[str, Any]:
+        """Refresh the anti-CSRF token from ``html`` then fetch the tableinfos data."""
+        token_match = self._REQUEST_TOKEN_PATTERN.search(html)
+        if token_match is not None:
+            self._request_token = token_match.group("token")
+        if not self._request_token:
+            raise BgaNotPublicError(tr("error_resolve_missing_request_token", table_id=table_id))
+        return self._fetch_public_tableinfos_data(table_id=table_id, base_url=base_url)
+
+    def _get_cached_roster(self, table_id: str) -> dict[str, str] | None:
+        with self._roster_cache_lock:
+            entry = self._roster_cache.get(table_id)
+            if entry is None:
+                return None
+            cached_at, roster = entry
+            if time.monotonic() - cached_at > self._ROSTER_CACHE_TTL_SECONDS:
+                del self._roster_cache[table_id]
+                return None
+            return dict(roster)
+
+    def _cache_roster(self, table_id: str, roster: dict[str, str]) -> None:
+        if not roster:
+            return
+        with self._roster_cache_lock:
+            self._roster_cache[table_id] = (time.monotonic(), dict(roster))
+
     def _fetch_public_tableinfos_data(self, *, table_id: str, base_url: str) -> dict[str, Any]:
         endpoint = (
             f"{base_url}/table/table/tableinfos.html"
@@ -292,7 +337,7 @@ class BgaClient:
         if self._request_token:
             headers["X-Request-Token"] = self._request_token
         try:
-            response = self._http.get(endpoint, headers=headers, timeout=self.timeout)
+            response = self._http_get(endpoint, headers=headers, timeout=self.timeout)
         except requests.RequestException as exc:
             raise BgaClientError(tr("error_load_tableinfos", table_id=table_id, error=exc)) from exc
 
@@ -503,7 +548,7 @@ class BgaClient:
         self, table_info: BgaTableInfo
     ) -> tuple[SpectatorBootstrap, BgaNotificationState | None, dict[str, str]]:
         try:
-            response = self._http.get(table_info.table_url, timeout=self.timeout)
+            response = self._http_get(table_info.table_url, timeout=self.timeout)
         except requests.RequestException as exc:
             raise BgaClientError(
                 tr("error_load_public_page", table_url=table_info.table_url, error=exc)
@@ -534,25 +579,27 @@ class BgaClient:
         placeholders such as ``TODO``) and not the real usernames, so relying on it
         alone pollutes the player list. The `tableinfos` AJAX endpoint returns the
         real roster but needs the per-session anti-CSRF ``requestToken`` (embedded in
-        the game page). This is best-effort: on any failure we fall back to the
+        the game page). The result is cached per table (rosters are stable for the
+        game's lifetime). This is best-effort: on any failure we fall back to the
         (noisier) HTML/websocket extraction by returning an empty roster.
         """
-        token_match = self._REQUEST_TOKEN_PATTERN.search(html)
-        if token_match is not None:
-            self._request_token = token_match.group("token")
-        if not self._request_token:
-            return {}
+        cached = self._get_cached_roster(table_info.table_id)
+        if cached is not None:
+            return cached
         try:
-            data = self._fetch_public_tableinfos_data(
+            data = self._fetch_tableinfos_with_token(
                 table_id=table_info.table_id,
                 base_url=table_info.base_url,
+                html=html,
             )
         except BgaClientError as exc:
-            LOGGER.info(
+            LOGGER.warning(
                 tr("roster_fetch_failed", table_id=table_info.table_id, error=exc)
             )
             return {}
-        return self._extract_roster_from_tableinfos(data)
+        roster = self._extract_roster_from_tableinfos(data)
+        self._cache_roster(table_info.table_id, roster)
+        return roster
 
     @classmethod
     def _extract_roster_from_tableinfos(cls, data: dict[str, Any]) -> dict[str, str]:
@@ -567,11 +614,13 @@ class BgaClient:
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
-            cls._remember_player_name(
-                roster,
-                entry.get("id"),
-                entry.get("fullname") or entry.get("name"),
-            )
+            player_id = cls._coerce_player_id(entry.get("id"))
+            if not player_id:
+                continue
+            raw_name = str(entry.get("fullname") or entry.get("name") or "").strip()
+            # Keep every real seat in the roster so guests / "Visitor-*" players are
+            # not filtered out of waiting_ids; fall back to their raw handle or id.
+            roster[player_id] = cls._clean_player_name(raw_name) or raw_name or player_id
         return roster
 
     @classmethod
