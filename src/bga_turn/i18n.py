@@ -48,8 +48,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "FR": "Ajoute une table BGA publique a surveiller dans ce salon",
     },
     "command_watch_target": {
-        "EN": "Full public BGA table URL",
-        "FR": "URL publique complete de la table BGA",
+        "EN": "BGA table URL (game link, tableview link) or table id",
+        "FR": "URL de table BGA (lien de jeu, lien tableview) ou identifiant de table",
     },
     "command_unwatch_description": {
         "EN": "Remove a watched BGA table from this channel",
@@ -286,6 +286,22 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "error_url_missing_table_param": {
         "EN": "The BGA URL does not contain a valid `table=<id>` parameter.",
         "FR": "L'URL BGA ne contient pas de parametre `table=<id>` valide.",
+    },
+    "error_resolve_missing_request_token": {
+        "EN": "Could not obtain the anonymous request token from the tableview page for table {table_id}.",
+        "FR": "Impossible d'obtenir le jeton de requete anonyme depuis la page tableview pour la table {table_id}.",
+    },
+    "error_resolve_missing_game_server": {
+        "EN": "Could not resolve the game server for table {table_id} (it may be private, finished, or not started yet).",
+        "FR": "Impossible de resoudre le serveur de jeu pour la table {table_id} (elle est peut-etre privee, terminee ou pas encore commencee).",
+    },
+    "resolved_public_table": {
+        "EN": "Resolved table {table_id} to /{gameserver}/{game_name}.",
+        "FR": "Table {table_id} resolue vers /{gameserver}/{game_name}.",
+    },
+    "roster_fetch_failed": {
+        "EN": "Could not fetch the authoritative player roster for table {table_id}: {error}. Falling back to page extraction.",
+        "FR": "Impossible de recuperer le roster autoritaire des joueurs pour la table {table_id}: {error}. Repli sur l'extraction depuis la page.",
     },
     "error_url_missing_public_path": {
         "EN": "The BGA URL must contain the public game path, for example /15/sevenwondersdice?table=...",

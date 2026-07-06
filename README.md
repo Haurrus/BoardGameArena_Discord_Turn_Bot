@@ -10,7 +10,7 @@ Target workflow:
 - you manually link a Discord member with `/bga link-member @discord BgaName BgaId`
 - the link can be partial: name only, ID only, or both
 - the bot fills the missing field automatically when it observes a table
-- you add a BGA table with `/bga watch <full_url>`
+- you add a BGA table with `/bga watch <game_url | tableview_link | table_id>`
 - the bot detects whose turn it is
 - it creates, updates, deletes, then recreates Discord messages as turns evolve
 - when the game is over, it removes the last active message and automatically removes the watch
@@ -308,10 +308,13 @@ Syntax:
 
 ```text
 /bga watch https://en.boardgamearena.com/15/sevenwondersdice?table=827248309
+/bga watch https://en.boardgamearena.com/tableview?table=827248309
+/bga watch 827248309
 ```
 
 Rules:
-- the command requires the full public BGA table URL
+- the command accepts the full in-game URL, a `tableview`/`table` link, or just the table id
+- for a `tableview`/`table` link or a bare id, the bot resolves the game server and game name anonymously (tableview page -> `requestToken` -> `tableinfos`)
 - the watch is attached to the current guild and channel
 - the websocket worker starts immediately after the command, without waiting for the next scheduler cycle
 

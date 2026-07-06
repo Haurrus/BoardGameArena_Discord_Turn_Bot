@@ -236,13 +236,34 @@ class BgaCommands(commands.Cog):
             return
 
         await interaction.response.defer(ephemeral=True, thinking=True)
-        table_info = self.bga_client.build_public_table_info(
-            table_id=table_id,
-            table_url=table_url,
-            base_url=base_url,
-            gameserver=gameserver,
-            game_name=game_name,
-        )
+
+        if gameserver and game_name:
+            table_info = self.bga_client.build_public_table_info(
+                table_id=table_id,
+                table_url=table_url,
+                base_url=base_url,
+                gameserver=gameserver,
+                game_name=game_name,
+            )
+        else:
+            # `tableview`/`table` link or bare table id: resolve the game server
+            # and game name anonymously before probing.
+            try:
+                table_info = await asyncio.to_thread(
+                    self.bga_client.resolve_public_table_info, table_id, base_url
+                )
+            except BgaNotPublicError as exc:
+                await interaction.followup.send(
+                    tr("error_watch_not_public", table_id=table_id, error=exc),
+                    ephemeral=True,
+                )
+                return
+            except BgaClientError as exc:
+                await interaction.followup.send(
+                    tr("error_watch_verify_failed", table_id=table_id, error=exc),
+                    ephemeral=True,
+                )
+                return
 
         try:
             state = await self.bga_client.probe_public_table(table_info, known_player_names={})

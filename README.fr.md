@@ -10,7 +10,7 @@ Le workflow cible est simple :
 - tu lies manuellement un membre Discord avec `/bga link-member @discord NomBGA IDBGA`
 - le lien peut etre partiel : seul le nom, seul l'ID, ou les deux
 - le bot enrichit automatiquement le champ manquant quand il observe une table
-- tu ajoutes une table BGA avec `/bga watch <url_complete>`
+- tu ajoutes une table BGA avec `/bga watch <url_de_jeu | lien_tableview | id_table>`
 - le bot detecte qui doit jouer
 - il cree, met a jour, supprime puis recree les messages Discord au rythme des tours
 - quand la partie est terminee, il supprime le dernier message actif et retire automatiquement la watch
@@ -308,10 +308,13 @@ Syntaxe :
 
 ```text
 /bga watch https://en.boardgamearena.com/15/sevenwondersdice?table=827248309
+/bga watch https://fr.boardgamearena.com/tableview?table=827248309
+/bga watch 827248309
 ```
 
 Regles :
-- la commande exige l'URL publique complete de la table BGA
+- la commande accepte l'URL de jeu complete, un lien `tableview`/`table`, ou simplement l'identifiant de la table
+- pour un lien `tableview`/`table` ou un identifiant nu, le bot resout anonymement le serveur de jeu et le nom du jeu (page `tableview` -> `requestToken` -> `tableinfos`)
 - la watch est associee au serveur et au salon courant
 - le worker websocket est demarre immediatement apres la commande, sans attendre le prochain cycle du scheduler
 

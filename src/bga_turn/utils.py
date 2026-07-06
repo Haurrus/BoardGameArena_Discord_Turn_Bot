@@ -40,6 +40,12 @@ def parse_public_table_url(value: str) -> tuple[str, str, str, str, str]:
     if not candidate:
         raise ValueError(tr("error_empty_table_url"))
 
+    # Bare numeric table id: the game server / game name are unknown and must be
+    # resolved anonymously by BgaClient. An empty normalized URL + empty
+    # gameserver/game_name signal "resolution required" to the caller.
+    if candidate.isdigit():
+        return candidate, "", BASE_URL, "", ""
+
     parsed = urlparse(candidate)
     if not parsed.scheme or not parsed.netloc:
         raise ValueError(tr("error_watch_requires_full_public_url"))
@@ -52,9 +58,12 @@ def parse_public_table_url(value: str) -> tuple[str, str, str, str, str]:
     base_url = BASE_URL
     path_parts = [part for part in parsed.path.split("/") if part]
 
-    if len(path_parts) == 1 and path_parts[0].strip().lower() in {"tableview", "table"}:
-        normalized_url = f"{base_url}/tableview?table={table_id}"
-        return table_id, normalized_url, base_url, "", ""
+    # `tableview?table=` / `table?table=` links do not embed the game server or
+    # game name; they must be resolved anonymously (see BgaClient.resolve_public_table_info).
+    if not path_parts or (
+        len(path_parts) == 1 and path_parts[0].strip().lower() in {"tableview", "table"}
+    ):
+        return table_id, "", base_url, "", ""
 
     if len(path_parts) < 2:
         raise ValueError(tr("error_url_missing_public_path"))

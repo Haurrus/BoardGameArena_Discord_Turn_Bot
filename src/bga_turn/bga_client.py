@@ -7,7 +7,7 @@ import logging
 import re
 import time
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import requests
@@ -19,6 +19,8 @@ from .i18n import tr
 from .models import BgaNotificationState, BgaTableInfo
 
 LOGGER = logging.getLogger(__name__)
+
+BASE_URL = "https://boardgamearena.com"
 
 
 class BgaClientError(RuntimeError):
@@ -123,6 +125,7 @@ class BgaClient:
         r'"transport"\s*:\s*"websocket"\s*,\s*"endpoint"\s*:\s*"(?P<url>wss[^"]+)"',
         re.DOTALL,
     )
+    _REQUEST_TOKEN_PATTERN = re.compile(r"requestToken:\s*'(?P<token>[0-9a-fA-F]+)'")
     _LEGACY_BOOTSTRAP_PATTERNS = [
         re.compile(
             r'"user_id"\s*:\s*"(?P<user_id>-?\d+)".{0,500}?"username"\s*:\s*"(?P<username>[^"]+)".{0,500}?"credentials"\s*:\s*"(?P<credentials>[0-9a-fA-F]{16,})"',
@@ -144,6 +147,7 @@ class BgaClient:
         self.timeout = timeout
         self.websocket_url = websocket_url
         self.enable_tableinfos_fallback = enable_tableinfos_fallback
+        self._request_token: str | None = None
         self._http = requests.Session()
         self._http.headers.update(
             {
@@ -172,6 +176,58 @@ class BgaClient:
             table_id=table_id,
             table_url=table_url,
             base_url=base_url,
+            gameserver=gameserver,
+            game_name=game_name,
+        )
+
+    def resolve_public_table_info(self, table_id: str, base_url: str | None = None) -> BgaTableInfo:
+        """Resolve a bare table id (or `tableview`/`table` link) into a spectable game URL.
+
+        ``tableview?table=`` links do not embed the game server / game name; that
+        mapping is only exposed via the login-gated ``tableinfos.html`` AJAX call,
+        which additionally requires the per-session anti-CSRF ``requestToken``.
+        We reproduce the anonymous browser flow: load the tableview page to obtain
+        both an anonymous ``PHPSESSID`` cookie (kept by ``self._http``) and the
+        ``requestToken``, then call ``tableinfos.html`` with that token.
+        """
+        base = (base_url or BASE_URL).rstrip("/")
+        tableview_url = f"{base}/tableview?table={table_id}"
+        try:
+            response = self._http.get(tableview_url, timeout=self.timeout)
+        except requests.RequestException as exc:
+            raise BgaClientError(
+                tr("error_load_public_page", table_url=tableview_url, error=exc)
+            ) from exc
+
+        if response.status_code >= 400:
+            raise BgaNotPublicError(tr("error_public_page_http", status_code=response.status_code))
+
+        token_match = self._REQUEST_TOKEN_PATTERN.search(response.text)
+        if token_match is None:
+            raise BgaNotPublicError(tr("error_resolve_missing_request_token", table_id=table_id))
+        self._request_token = token_match.group("token")
+
+        data = self._fetch_public_tableinfos_data(table_id=table_id, base_url=base)
+        gameserver = str(data.get("gameserver") or "").strip()
+        game_name = str(data.get("game_name") or "").strip()
+        if not gameserver.isdigit() or not game_name:
+            raise BgaTableUnavailableError(
+                tr("error_resolve_missing_game_server", table_id=table_id)
+            )
+
+        table_url = f"{base}/{gameserver}/{game_name}?table={table_id}"
+        LOGGER.info(
+            tr(
+                "resolved_public_table",
+                table_id=table_id,
+                gameserver=gameserver,
+                game_name=game_name,
+            )
+        )
+        return BgaTableInfo(
+            table_id=table_id,
+            table_url=table_url,
+            base_url=base,
             gameserver=gameserver,
             game_name=game_name,
         )
@@ -218,6 +274,12 @@ class BgaClient:
         if response.status_code >= 400:
             raise BgaClientError(tr("error_public_page_http", status_code=response.status_code))
 
+        # Prefer the authoritative tableinfos roster (real usernames); only fall
+        # back to HTML scraping (which picks up card names / `TODO` pieces) if it
+        # is unavailable.
+        roster = self._load_public_player_roster(table_info, response.text)
+        if roster:
+            return roster
         return self._extract_player_names_from_html(response.text)
 
     def _fetch_public_tableinfos_data(self, *, table_id: str, base_url: str) -> dict[str, Any]:
@@ -226,8 +288,11 @@ class BgaClient:
             f"?id={table_id}&nosuggest=true&table={table_id}"
             f"&noerrortracking=true&dojo.preventCache={int(time.time() * 1000)}"
         )
+        headers = {"X-Requested-With": "XMLHttpRequest"}
+        if self._request_token:
+            headers["X-Request-Token"] = self._request_token
         try:
-            response = self._http.get(endpoint, timeout=self.timeout)
+            response = self._http.get(endpoint, headers=headers, timeout=self.timeout)
         except requests.RequestException as exc:
             raise BgaClientError(tr("error_load_tableinfos", table_id=table_id, error=exc)) from exc
 
@@ -266,8 +331,14 @@ class BgaClient:
         known_player_names: dict[str, str] | None = None,
     ) -> BgaNotificationState:
         known_names = dict(known_player_names or {})
-        bootstrap, bootstrap_state = await asyncio.to_thread(self._load_public_bootstrap, table_info)
+        bootstrap, bootstrap_state, roster = await asyncio.to_thread(
+            self._load_public_bootstrap, table_info
+        )
+        known_names.update(roster)
         pending_items: list[dict[str, Any]] = []
+
+        def finalize(state: BgaNotificationState) -> BgaNotificationState:
+            return self._sanitize_state_with_roster(state, roster)
 
         async with self._connect(table_info, websocket_url=bootstrap.websocket_url) as websocket:
             await self._connect_and_subscribe(websocket, table_info, bootstrap, pending_items)
@@ -292,22 +363,24 @@ class BgaClient:
                 known_player_names=known_names,
             )
             if initial_states:
-                return initial_states[-1]
+                return finalize(initial_states[-1])
             if bootstrap_state is not None:
-                return bootstrap_state
+                return finalize(bootstrap_state)
             if presence_state is not None:
-                return presence_state
+                return finalize(presence_state)
 
             try:
                 message = await asyncio.wait_for(self._recv_message(websocket), timeout=3)
             except asyncio.TimeoutError:
-                return BgaNotificationState(
-                    highest_packet_id=None,
-                    waiting_ids=None,
-                    player_names=known_names,
-                    source="websocket_subscribed",
-                    details={"probe": "subscribed_without_immediate_publication"},
-                    is_game_finished=False,
+                return finalize(
+                    BgaNotificationState(
+                        highest_packet_id=None,
+                        waiting_ids=None,
+                        player_names=known_names,
+                        source="websocket_subscribed",
+                        details={"probe": "subscribed_without_immediate_publication"},
+                        is_game_finished=False,
+                    )
                 )
 
             states = self._extract_states_from_frame(
@@ -316,14 +389,16 @@ class BgaClient:
                 known_player_names=known_names,
             )
             if states:
-                return states[-1]
-            return BgaNotificationState(
-                highest_packet_id=None,
-                waiting_ids=None,
-                player_names=known_names,
-                source="websocket_subscribed",
-                details={"probe": "no_state_in_first_publication"},
-                is_game_finished=False,
+                return finalize(states[-1])
+            return finalize(
+                BgaNotificationState(
+                    highest_packet_id=None,
+                    waiting_ids=None,
+                    player_names=known_names,
+                    source="websocket_subscribed",
+                    details={"probe": "no_state_in_first_publication"},
+                    is_game_finished=False,
+                )
             )
 
     async def watch_table(
@@ -332,13 +407,19 @@ class BgaClient:
         current_waiting_ids: list[str],
         known_player_names: dict[str, str],
     ):
-        bootstrap, bootstrap_state = await asyncio.to_thread(self._load_public_bootstrap, table_info)
+        bootstrap, bootstrap_state, roster = await asyncio.to_thread(
+            self._load_public_bootstrap, table_info
+        )
+        if roster:
+            known_player_names = dict(known_player_names)
+            known_player_names.update(roster)
         pending_items: list[dict[str, Any]] = []
 
         async with self._connect(table_info, websocket_url=bootstrap.websocket_url) as websocket:
             await self._connect_and_subscribe(websocket, table_info, bootstrap, pending_items)
             presence_state = await self._request_presence(websocket, table_info, known_player_names, pending_items)
             if presence_state is not None:
+                presence_state = self._sanitize_state_with_roster(presence_state, roster)
                 known_player_names = dict(presence_state.player_names)
                 yield presence_state
 
@@ -352,6 +433,7 @@ class BgaClient:
                     source=bootstrap_state.source,
                     details=bootstrap_state.details,
                 )
+                bootstrap_state = self._sanitize_state_with_roster(bootstrap_state, roster)
                 if bootstrap_state.player_names:
                     known_player_names = dict(bootstrap_state.player_names)
                     yield bootstrap_state
@@ -365,6 +447,7 @@ class BgaClient:
                 known_player_names=known_player_names,
             )
             for state in initial_states:
+                state = self._sanitize_state_with_roster(state, roster)
                 if state.waiting_ids is not None:
                     current_waiting_ids = state.waiting_ids
                 known_player_names = dict(state.player_names)
@@ -410,12 +493,15 @@ class BgaClient:
                     known_player_names=known_player_names,
                 )
                 for state in states:
+                    state = self._sanitize_state_with_roster(state, roster)
                     if state.waiting_ids is not None:
                         current_waiting_ids = state.waiting_ids
                     known_player_names = dict(state.player_names)
                     yield state
 
-    def _load_public_bootstrap(self, table_info: BgaTableInfo) -> tuple[SpectatorBootstrap, BgaNotificationState | None]:
+    def _load_public_bootstrap(
+        self, table_info: BgaTableInfo
+    ) -> tuple[SpectatorBootstrap, BgaNotificationState | None, dict[str, str]]:
         try:
             response = self._http.get(table_info.table_url, timeout=self.timeout)
         except requests.RequestException as exc:
@@ -437,8 +523,68 @@ class BgaClient:
         bootstrap = self._extract_spectator_bootstrap(html)
         if bootstrap is None:
             raise BgaNotPublicError(tr("error_missing_spectator_bootstrap"))
+        roster = self._load_public_player_roster(table_info, html)
         initial_state = self._extract_initial_state_from_html(html)
-        return bootstrap, initial_state
+        return bootstrap, initial_state, roster
+
+    def _load_public_player_roster(self, table_info: BgaTableInfo, html: str) -> dict[str, str]:
+        """Return the authoritative ``{player_id: username}`` roster for the table.
+
+        The anonymous game page only exposes internal game data (card names, piece
+        placeholders such as ``TODO``) and not the real usernames, so relying on it
+        alone pollutes the player list. The `tableinfos` AJAX endpoint returns the
+        real roster but needs the per-session anti-CSRF ``requestToken`` (embedded in
+        the game page). This is best-effort: on any failure we fall back to the
+        (noisier) HTML/websocket extraction by returning an empty roster.
+        """
+        token_match = self._REQUEST_TOKEN_PATTERN.search(html)
+        if token_match is not None:
+            self._request_token = token_match.group("token")
+        if not self._request_token:
+            return {}
+        try:
+            data = self._fetch_public_tableinfos_data(
+                table_id=table_info.table_id,
+                base_url=table_info.base_url,
+            )
+        except BgaClientError as exc:
+            LOGGER.info(
+                tr("roster_fetch_failed", table_id=table_info.table_id, error=exc)
+            )
+            return {}
+        return self._extract_roster_from_tableinfos(data)
+
+    @classmethod
+    def _extract_roster_from_tableinfos(cls, data: dict[str, Any]) -> dict[str, str]:
+        players = data.get("players")
+        if isinstance(players, dict):
+            entries: Any = players.values()
+        elif isinstance(players, list):
+            entries = players
+        else:
+            return {}
+        roster: dict[str, str] = {}
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            cls._remember_player_name(
+                roster,
+                entry.get("id"),
+                entry.get("fullname") or entry.get("name"),
+            )
+        return roster
+
+    @classmethod
+    def _sanitize_state_with_roster(
+        cls, state: BgaNotificationState, roster: dict[str, str]
+    ) -> BgaNotificationState:
+        """Force reported names/ids to the authoritative roster (drops game noise)."""
+        if not roster:
+            return state
+        waiting_ids = state.waiting_ids
+        if waiting_ids is not None:
+            waiting_ids = [pid for pid in waiting_ids if pid in roster]
+        return replace(state, player_names=dict(roster), waiting_ids=waiting_ids)
 
     @classmethod
     def _extract_spectator_bootstrap(cls, html: str) -> SpectatorBootstrap | None:
