@@ -1004,8 +1004,14 @@ class BgaClient:
                     "Chrome/146.0.0.0 Safari/537.36"
                 ),
                 open_timeout=self.timeout,
-                ping_interval=None,
-                ping_timeout=None,
+                # Keepalive pings let us detect a silently dropped connection
+                # (half-open TCP with no close frame, common on long-idle async
+                # games) so the worker reconnects instead of blocking forever on a
+                # dead socket. BGA answers protocol pongs, so this is safe. A dead
+                # connection is detected within ~ping_interval+ping_timeout (~75s),
+                # which is invisible for async games where turns take hours.
+                ping_interval=45,
+                ping_timeout=30,
             ) as websocket:
                 yield websocket
         except InvalidStatus as exc:
