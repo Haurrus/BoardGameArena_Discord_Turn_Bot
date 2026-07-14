@@ -126,6 +126,12 @@ class BgaCommands(commands.Cog):
         bga_player_name: str | None = None,
         bga_player_id: str | None = None,
     ) -> None:
+        if interaction.guild_id is None:
+            await interaction.response.send_message(
+                tr("error_command_server_only"),
+                ephemeral=True,
+            )
+            return
         if not self._has_manage_permissions(interaction):
             await interaction.response.send_message(
                 tr("error_manage_server_required_link"),
@@ -148,12 +154,14 @@ class BgaCommands(commands.Cog):
             )
             return
 
+        guild_id = str(interaction.guild_id)
         self.database.upsert_linked_user(
+            guild_id=guild_id,
             discord_user_id=str(member.id),
             bga_player_id=candidate_id,
             bga_player_name=candidate_name,
         )
-        linked_user = self.database.get_linked_user(str(member.id))
+        linked_user = self.database.get_linked_user(guild_id, str(member.id))
         if linked_user is None:
             raise RuntimeError("Failed to load the linked BGA user after saving it.")
         name_display = linked_user.bga_player_name or tr("link_missing_value_placeholder")
@@ -175,6 +183,12 @@ class BgaCommands(commands.Cog):
         interaction: discord.Interaction,
         member: discord.Member,
     ) -> None:
+        if interaction.guild_id is None:
+            await interaction.response.send_message(
+                tr("error_command_server_only"),
+                ephemeral=True,
+            )
+            return
         if not self._has_manage_permissions(interaction):
             await interaction.response.send_message(
                 tr("error_manage_server_required_unlink"),
@@ -182,7 +196,7 @@ class BgaCommands(commands.Cog):
             )
             return
 
-        removed = self.database.remove_linked_user(str(member.id))
+        removed = self.database.remove_linked_user(str(interaction.guild_id), str(member.id))
         if not removed:
             await interaction.response.send_message(
                 tr("unlink_not_found", member_mention=member.mention),
@@ -197,7 +211,14 @@ class BgaCommands(commands.Cog):
 
     @bga.command(name="linked", description=tr("command_linked_description"))
     async def linked(self, interaction: discord.Interaction) -> None:
-        linked_users = self.database.list_linked_users()
+        if interaction.guild_id is None:
+            await interaction.response.send_message(
+                tr("error_command_server_only"),
+                ephemeral=True,
+            )
+            return
+
+        linked_users = self.database.list_linked_users_for_guild(str(interaction.guild_id))
         if not linked_users:
             await interaction.response.send_message(
                 tr("linked_none"),
@@ -300,8 +321,13 @@ class BgaCommands(commands.Cog):
             is_initialized=subscription.is_initialized,
             game_name=table_info.game_name,
         )
-        await asyncio.to_thread(self.database.enrich_linked_users_from_players, persisted_player_names)
-        linked_users = await asyncio.to_thread(self.database.get_linked_users_for_players, state.player_names)
+        guild_id = str(interaction.guild_id)
+        await asyncio.to_thread(
+            self.database.enrich_linked_users_from_players, guild_id, persisted_player_names
+        )
+        linked_users = await asyncio.to_thread(
+            self.database.get_linked_users_for_players, guild_id, state.player_names
+        )
         linked_by_bga_id = {item.bga_player_id: item for item in linked_users if item.bga_player_id}
         linked_by_name = {
             item.bga_player_name.casefold(): item
@@ -484,7 +510,9 @@ class BgaCommands(commands.Cog):
             if not subscription.is_initialized:
                 state = tr("status_unknown")
             elif subscription.last_waiting_ids:
-                linked_users = self.database.get_linked_users_by_bga_ids(subscription.last_waiting_ids)
+                linked_users = self.database.get_linked_users_by_bga_ids(
+                    subscription.guild_id, subscription.last_waiting_ids
+                )
                 if linked_users:
                     mentions = ", ".join(f"<@{item.discord_user_id}>" for item in linked_users)
                     state = tr("status_waiting_for", mentions=mentions)

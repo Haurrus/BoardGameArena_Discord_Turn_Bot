@@ -186,7 +186,10 @@ class BgaMonitor:
             waiting_ids=waiting_ids,
             player_names=merged_player_names,
         )
-        await asyncio.to_thread(self.database.enrich_linked_users_from_players, merged_player_names)
+        for guild_id in {subscription.guild_id for subscription in subscriptions}:
+            await asyncio.to_thread(
+                self.database.enrich_linked_users_from_players, guild_id, merged_player_names
+            )
 
         if state.is_game_finished:
             LOGGER.info(tr("table_finished_public", table_id=table_id))
@@ -520,6 +523,7 @@ class BgaMonitor:
         }
         linked_users = await asyncio.to_thread(
             self.database.get_linked_users_for_players,
+            subscription.guild_id,
             observed_waiting_players,
         )
         linked_users_by_bga_id = {user.bga_player_id: user for user in linked_users if user.bga_player_id}

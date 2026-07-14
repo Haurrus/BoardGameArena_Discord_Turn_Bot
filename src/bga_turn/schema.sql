@@ -1,11 +1,13 @@
 ﻿PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS users (
-    discord_user_id TEXT PRIMARY KEY,
+    guild_id TEXT NOT NULL,
+    discord_user_id TEXT NOT NULL,
     bga_player_id TEXT NOT NULL,
     bga_player_name TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (guild_id, discord_user_id)
 );
 
 CREATE TABLE IF NOT EXISTS watch_subscriptions (

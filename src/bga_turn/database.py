@@ -25,6 +25,7 @@ class Database:
             self._ensure_watch_state_columns()
             self._migrate_legacy_watches_if_needed()
             self._drop_legacy_tables_if_safe()
+            self._migrate_users_to_guild_scope()
             self._connection.commit()
 
     def close(self) -> None:
@@ -33,6 +34,7 @@ class Database:
 
     def upsert_linked_user(
         self,
+        guild_id: str,
         discord_user_id: str,
         bga_player_id: str | None,
         bga_player_name: str | None,
@@ -44,13 +46,14 @@ class Database:
             self._connection.execute(
                 """
                 INSERT INTO users (
+                    guild_id,
                     discord_user_id,
                     bga_player_id,
                     bga_player_name,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(discord_user_id) DO UPDATE SET
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(guild_id, discord_user_id) DO UPDATE SET
                     bga_player_id = CASE
                         WHEN excluded.bga_player_id <> '' THEN excluded.bga_player_id
                         ELSE users.bga_player_id
@@ -61,19 +64,19 @@ class Database:
                     END,
                     updated_at = excluded.updated_at
                 """,
-                (discord_user_id, normalized_player_id, normalized_player_name, now, now),
+                (guild_id, discord_user_id, normalized_player_id, normalized_player_name, now, now),
             )
             self._connection.commit()
 
-    def get_linked_user(self, discord_user_id: str) -> LinkedUser | None:
+    def get_linked_user(self, guild_id: str, discord_user_id: str) -> LinkedUser | None:
         with self._lock:
             row = self._connection.execute(
                 """
                 SELECT discord_user_id, bga_player_id, bga_player_name
                 FROM users
-                WHERE discord_user_id = ?
+                WHERE guild_id = ? AND discord_user_id = ?
                 """,
-                (discord_user_id,),
+                (guild_id, discord_user_id),
             ).fetchone()
         if row is None:
             return None
@@ -83,23 +86,25 @@ class Database:
             bga_player_name=row["bga_player_name"],
         )
 
-    def remove_linked_user(self, discord_user_id: str) -> bool:
+    def remove_linked_user(self, guild_id: str, discord_user_id: str) -> bool:
         with self._lock:
             cursor = self._connection.execute(
-                "DELETE FROM users WHERE discord_user_id = ?",
-                (discord_user_id,),
+                "DELETE FROM users WHERE guild_id = ? AND discord_user_id = ?",
+                (guild_id, discord_user_id),
             )
             self._connection.commit()
             return cursor.rowcount > 0
 
-    def list_linked_users(self) -> list[LinkedUser]:
+    def list_linked_users_for_guild(self, guild_id: str) -> list[LinkedUser]:
         with self._lock:
             rows = self._connection.execute(
                 """
                 SELECT discord_user_id, bga_player_id, bga_player_name
                 FROM users
+                WHERE guild_id = ?
                 ORDER BY bga_player_name COLLATE NOCASE, discord_user_id
-                """
+                """,
+                (guild_id,),
             ).fetchall()
         return [
             LinkedUser(
@@ -110,7 +115,7 @@ class Database:
             for row in rows
         ]
 
-    def get_linked_users_by_bga_ids(self, bga_player_ids: list[str]) -> list[LinkedUser]:
+    def get_linked_users_by_bga_ids(self, guild_id: str, bga_player_ids: list[str]) -> list[LinkedUser]:
         filtered_ids = [item for item in bga_player_ids if item]
         if not filtered_ids:
             return []
@@ -120,10 +125,10 @@ class Database:
                 f"""
                 SELECT discord_user_id, bga_player_id, bga_player_name
                 FROM users
-                WHERE bga_player_id IN ({placeholders})
+                WHERE guild_id = ? AND bga_player_id IN ({placeholders})
                 ORDER BY bga_player_name COLLATE NOCASE, discord_user_id
                 """,
-                tuple(filtered_ids),
+                (guild_id, *filtered_ids),
             ).fetchall()
         return [
             LinkedUser(
@@ -134,10 +139,12 @@ class Database:
             for row in rows
         ]
 
-    def get_linked_users_for_players(self, player_names: dict[str, str]) -> list[LinkedUser]:
+    def get_linked_users_for_players(
+        self, guild_id: str, player_names: dict[str, str]
+    ) -> list[LinkedUser]:
         if not player_names:
             return []
-        linked_users = self.list_linked_users()
+        linked_users = self.list_linked_users_for_guild(guild_id)
         matches: dict[str, LinkedUser] = {}
         for player_id, player_name in player_names.items():
             match = self._find_matching_linked_user(linked_users, player_id, player_name)
@@ -145,13 +152,15 @@ class Database:
                 matches[match.discord_user_id] = match
         return sorted(matches.values(), key=lambda item: ((item.bga_player_name or "~").casefold(), item.discord_user_id))
 
-    def enrich_linked_users_from_players(self, player_names: dict[str, str]) -> int:
+    def enrich_linked_users_from_players(
+        self, guild_id: str, player_names: dict[str, str]
+    ) -> int:
         if not player_names:
             return 0
 
         updated_count = 0
         with self._lock:
-            linked_users = self.list_linked_users()
+            linked_users = self.list_linked_users_for_guild(guild_id)
             now = utc_now_iso()
             for player_id, player_name in player_names.items():
                 if not player_id and not player_name:
@@ -169,9 +178,9 @@ class Database:
                     """
                     UPDATE users
                     SET bga_player_id = ?, bga_player_name = ?, updated_at = ?
-                    WHERE discord_user_id = ?
+                    WHERE guild_id = ? AND discord_user_id = ?
                     """,
-                    (new_player_id, new_player_name, now, match.discord_user_id),
+                    (new_player_id, new_player_name, now, guild_id, match.discord_user_id),
                 )
                 updated_count += 1
 
@@ -453,6 +462,52 @@ class Database:
             """,
             (now,),
         )
+
+    def _migrate_users_to_guild_scope(self) -> None:
+        columns = self._column_names("users")
+        if not columns or "guild_id" in columns:
+            return
+
+        # Legacy schema keyed linked users globally by discord_user_id. Move to a
+        # per-guild key by replicating each global link into every guild that
+        # currently has a watch subscription (duplicates are intended). Links that
+        # belong to no known guild cannot be placed and are dropped.
+        self._connection.execute("ALTER TABLE users RENAME TO users_legacy_global")
+        self._connection.execute(
+            """
+            CREATE TABLE users (
+                guild_id TEXT NOT NULL,
+                discord_user_id TEXT NOT NULL,
+                bga_player_id TEXT NOT NULL,
+                bga_player_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (guild_id, discord_user_id)
+            )
+            """
+        )
+        self._connection.execute(
+            """
+            INSERT OR IGNORE INTO users (
+                guild_id,
+                discord_user_id,
+                bga_player_id,
+                bga_player_name,
+                created_at,
+                updated_at
+            )
+            SELECT
+                s.guild_id,
+                u.discord_user_id,
+                u.bga_player_id,
+                u.bga_player_name,
+                u.created_at,
+                u.updated_at
+            FROM users_legacy_global u
+            CROSS JOIN (SELECT DISTINCT guild_id FROM watch_subscriptions) s
+            """
+        )
+        self._connection.execute("DROP TABLE users_legacy_global")
 
     def _drop_legacy_tables_if_safe(self) -> None:
         if not self._table_exists("watches"):
