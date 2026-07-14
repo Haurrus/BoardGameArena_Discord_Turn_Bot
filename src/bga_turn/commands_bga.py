@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import asyncio
+import logging
 
 import discord
 from discord import app_commands
@@ -12,6 +13,8 @@ from .i18n import tr
 from .monitor import BgaMonitor
 from .utils import build_table_url, format_game_name, parse_public_table_url, parse_table_id
 
+LOGGER = logging.getLogger(__name__)
+
 
 class BgaCommands(commands.Cog):
     bga = app_commands.Group(name="bga", description=tr("command_group_description"))
@@ -20,6 +23,59 @@ class BgaCommands(commands.Cog):
         self.database = database
         self.bga_client = bga_client
         self.monitor = monitor
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Log every ``/bga`` command invocation. Never blocks the command."""
+        self._log_command_invocation(interaction)
+        return True
+
+    @staticmethod
+    def _flatten_command_options(options: list[dict] | None) -> list[str]:
+        # Slash options nest subcommand (type 1) / subcommand-group (type 2)
+        # payloads, so walk down to the leaf options that carry actual values.
+        parts: list[str] = []
+        for option in options or []:
+            if option.get("type") in (1, 2):
+                parts.extend(BgaCommands._flatten_command_options(option.get("options")))
+            else:
+                parts.append(f"{option.get('name')}={option.get('value')!r}")
+        return parts
+
+    @staticmethod
+    def _command_name_from_data(data: dict | None) -> str:
+        # Rebuild "bga watch" from the raw payload when interaction.command is
+        # unavailable, by descending through nested subcommand options.
+        names: list[str] = []
+        node = data or {}
+        while node:
+            name = node.get("name")
+            if name:
+                names.append(str(name))
+            options = node.get("options") or []
+            node = next((opt for opt in options if opt.get("type") in (1, 2)), None)
+        return " ".join(names) or "unknown"
+
+    @classmethod
+    def _log_command_invocation(cls, interaction: discord.Interaction) -> None:
+        command = interaction.command
+        command_name = (
+            command.qualified_name
+            if command is not None
+            else cls._command_name_from_data(interaction.data)
+        )
+        params = cls._flatten_command_options((interaction.data or {}).get("options"))
+        user = interaction.user
+        LOGGER.info(
+            tr(
+                "command_invocation",
+                command=command_name,
+                user_name=getattr(user, "display_name", str(user)),
+                user_id=getattr(user, "id", "unknown"),
+                guild_id=interaction.guild_id if interaction.guild_id is not None else "dm",
+                channel_id=interaction.channel_id if interaction.channel_id is not None else "n/a",
+                params=", ".join(params) or "none",
+            )
+        )
 
     @staticmethod
     def _has_manage_permissions(interaction: discord.Interaction) -> bool:

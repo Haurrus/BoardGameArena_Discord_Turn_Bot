@@ -519,6 +519,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "EN": "{game_label}: {game_name}\n{table_label}: {table_id}\n{players_label}: {players}\n{url_label}: {table_url}",
         "FR": "{game_label} : {game_name}\n{table_label} : {table_id}\n{players_label} : {players}\n{url_label} : {table_url}",
     },
+    "command_invocation": {
+        "EN": "Slash command /{command} invoked by {user_name} ({user_id}) in guild={guild_id} channel={channel_id} params=[{params}]",
+        "FR": "Commande slash /{command} appelee par {user_name} ({user_id}) dans serveur={guild_id} salon={channel_id} params=[{params}]",
+    },
 }
 
 
