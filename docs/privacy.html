@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — BGA Turn Bot</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.65;
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 3rem 1.25rem 5rem;
+      color: #1a1a1a;
+      background: #fff;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { color: #e6e6e6; background: #131417; }
+      a { color: #8ab4ff; }
+      hr { border-color: #333; }
+    }
+    h1 { font-size: 1.9rem; margin-bottom: 0.25rem; }
+    h2 { font-size: 1.25rem; margin-top: 2.2rem; }
+    .meta { color: #888; font-size: 0.9rem; margin-bottom: 2rem; }
+    a { color: #2b6cff; }
+    hr { border: none; border-top: 1px solid #e5e5e5; margin: 2.5rem 0; }
+    ul { padding-left: 1.3rem; }
+    li { margin-bottom: 0.4rem; }
+    code { background: rgba(127,127,127,0.15); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>Privacy Policy</h1>
+  <p class="meta">BGA Turn Bot &middot; Last updated: 2026/07/14</p>
+
+  <p>This Privacy Policy explains what data <strong>BGA Turn Bot</strong> (the "Bot") stores, why, and how it is handled. The Bot is a self-hosted Discord bot that watches public Board Game Arena tables and posts turn-status messages in Discord. It is designed to store the minimum data needed to function.</p>
+
+  <h2>1. Data we store</h2>
+  <p>The Bot stores the following data in a local database on the server where it runs:</p>
+  <ul>
+    <li><strong>Discord identifiers</strong>: user IDs, server (guild) IDs, and channel IDs, used to know where to post messages and which member is linked to which player.</li>
+    <li><strong>Board Game Arena player information</strong>: the public BGA player name and/or public BGA player ID that a server administrator manually links to a Discord member.</li>
+    <li><strong>Watched table information</strong>: the public BGA table URLs and table IDs added via the <code>/bga watch</code> command, along with the last known public game state (such as whose turn it is and the game name).</li>
+  </ul>
+  <p>The Bot does <strong>not</strong> collect message content, private messages, email addresses, passwords, payment information, IP addresses, or any Board Game Arena login credentials. It only reads publicly available BGA table pages in spectator mode, without cookies or a BGA account.</p>
+
+  <h2>2. How the data is used</h2>
+  <p>The stored data is used solely to operate the Bot's core features: linking a Discord member to a BGA player, watching public tables, detecting turns, and creating, updating, or deleting Discord status messages accordingly. The data is not used for advertising, profiling, or any purpose beyond running the Bot.</p>
+
+  <h2>3. Where the data is stored</h2>
+  <p>All data is stored locally in an SQLite database file on the server operated by the person self-hosting the Bot. It is not sold, rented, or shared with third parties, and it is not sent to any external analytics or advertising service.</p>
+
+  <h2>4. Data retention and deletion</h2>
+  <p>You can remove your data at any time using the Bot's commands:</p>
+  <ul>
+    <li><code>/bga unlink-member</code> removes the link between a Discord member and a BGA player.</li>
+    <li><code>/bga unwatch</code> and <code>/bga unwatch-all</code> remove watched tables and their stored state.</li>
+  </ul>
+  <p>When the Bot is removed from a server, the operator can delete the associated data. For a complete deletion request, contact the operator using the details below.</p>
+
+  <h2>5. Third-party services</h2>
+  <p>The Bot operates on Discord and reads public data from Board Game Arena. The Bot is not affiliated with either service. Your use of Discord is governed by Discord's <a href="https://discord.com/privacy">Privacy Policy</a>, and your use of Board Game Arena is governed by its own privacy terms.</p>
+
+  <h2>6. Children</h2>
+  <p>The Bot is intended to be used within Discord, which requires users to be at least 13 years old (or the minimum age of digital consent in their country). The Bot is not directed at children below that age.</p>
+
+  <h2>7. Changes to this policy</h2>
+  <p>This Privacy Policy may be updated from time to time. The "last updated" date at the top reflects the most recent revision. Continued use of the Bot after changes take effect constitutes acceptance of the revised policy.</p>
+
+  <h2>8. Contact</h2>
+  <p>For any privacy question or a data deletion request, contact the operator at: <a href="mailto:mrhaurrus@gmail.com">MrHaurrus@gmail.com</a></p>
+
+  <hr>
+  <p class="meta">This document is a general template provided for transparency and is not legal advice.</p>
+</body>
+</html>
