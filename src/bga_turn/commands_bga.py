@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from .bga_client import BgaClient, BgaClientError, BgaNotPublicError
+from .bga_client import BgaClient, BgaClientError, BgaNotPublicError, BgaPlayerNotFoundError
 from .database import Database
 from .i18n import tr
 from .monitor import BgaMonitor
@@ -435,6 +435,135 @@ class BgaCommands(commands.Cog):
         )
 
         await interaction.followup.send(message_content, ephemeral=True)
+        await self.monitor.refresh_now()
+
+    @bga.command(name="follow-tables", description=tr("command_follow_tables_description"))
+    @app_commands.describe(member=tr("command_follow_tables_member"))
+    async def follow_tables(self, interaction: discord.Interaction, member: discord.Member) -> None:
+        if interaction.guild_id is None or interaction.channel_id is None:
+            await interaction.response.send_message(
+                tr("error_command_server_channel_only"),
+                ephemeral=True,
+            )
+            return
+
+        guild_id = str(interaction.guild_id)
+        channel_id = str(interaction.channel_id)
+        followed_discord_user_id = str(member.id)
+
+        # Turning the follow off is checked before the BGA link so that a member
+        # unlinked in the meantime can still be un-followed.
+        if self.database.is_player_followed(
+            guild_id=guild_id,
+            discord_user_id=followed_discord_user_id,
+            channel_id=channel_id,
+        ):
+            self.database.toggle_followed_player(
+                guild_id=guild_id,
+                discord_user_id=followed_discord_user_id,
+                channel_id=channel_id,
+                created_by_discord_user_id=str(interaction.user.id),
+            )
+            await interaction.response.send_message(
+                tr(
+                    "follow_tables_disabled",
+                    member_mention=member.mention,
+                    channel_id=interaction.channel_id,
+                ),
+                ephemeral=True,
+            )
+            return
+
+        linked_user = self.database.get_linked_user(guild_id, followed_discord_user_id)
+        if linked_user is None:
+            await interaction.response.send_message(
+                tr("error_follow_member_not_linked", member_mention=member.mention),
+                ephemeral=True,
+            )
+            return
+
+        bga_player_id = (linked_user.bga_player_id or "").strip()
+        if not bga_player_id:
+            await interaction.response.send_message(
+                tr(
+                    "error_follow_member_without_id",
+                    member_mention=member.mention,
+                    bga_name=linked_user.bga_player_name or tr("value_unknown"),
+                ),
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        # Scan before enabling: a lookup failure must not leave behind a follow that
+        # silently does nothing.
+        try:
+            result = await self.monitor.sync_followed_player(
+                guild_id=guild_id,
+                discord_user_id=followed_discord_user_id,
+                channel_id=channel_id,
+                bga_player_id=bga_player_id,
+                created_by_discord_user_id=str(interaction.user.id),
+            )
+        except BgaPlayerNotFoundError:
+            await interaction.followup.send(
+                tr(
+                    "error_follow_unknown_player",
+                    member_mention=member.mention,
+                    bga_player_id=bga_player_id,
+                ),
+                ephemeral=True,
+            )
+            return
+        except BgaClientError as exc:
+            await interaction.followup.send(
+                tr("error_follow_lookup_failed", member_mention=member.mention, error=exc),
+                ephemeral=True,
+            )
+            return
+
+        self.database.toggle_followed_player(
+            guild_id=guild_id,
+            discord_user_id=followed_discord_user_id,
+            channel_id=channel_id,
+            created_by_discord_user_id=str(interaction.user.id),
+        )
+
+        header = tr(
+            "follow_tables_enabled",
+            member_mention=member.mention,
+            bga_name=result.player_name or linked_user.bga_player_name or tr("value_unknown"),
+            bga_id=bga_player_id,
+            channel_id=interaction.channel_id,
+        )
+        lines: list[str] = []
+        if result.added:
+            lines.append(tr("follow_tables_added_header", count=len(result.added)))
+            lines.extend(
+                tr(
+                    "follow_tables_added_line",
+                    table_id=table.table_id,
+                    game_name=format_game_name(table.game_name),
+                )
+                for table in result.added
+            )
+        else:
+            lines.append(tr("follow_tables_added_none"))
+        if result.already_watched:
+            lines.append(
+                tr(
+                    "follow_tables_already_watched",
+                    count=len(result.already_watched),
+                    table_ids=", ".join(f"`{table.table_id}`" for table in result.already_watched),
+                )
+            )
+        lines.append(tr("follow_tables_toggle_hint"))
+
+        await self._send_ephemeral_chunks(
+            interaction,
+            self._split_message_lines(header, lines),
+        )
         await self.monitor.refresh_now()
 
     @bga.command(name="unwatch", description=tr("command_unwatch_description"))

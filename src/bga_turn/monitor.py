@@ -11,7 +11,7 @@ from discord.ext import tasks
 from .bga_client import BgaClient, BgaClientError, BgaNotPublicError, BgaTableUnavailableError
 from .database import Database
 from .i18n import tr
-from .models import LinkedUser, WatchSubscription
+from .models import BgaTableInfo, LinkedUser, WatchSubscription
 from .utils import build_table_url, format_game_name
 
 LOGGER = logging.getLogger(__name__)
@@ -23,7 +23,23 @@ class ActiveTurnMessage:
     waiting_ids: list[str]
 
 
+@dataclass(slots=True)
+class FollowSyncResult:
+    player_name: str
+    added: list[BgaTableInfo]
+    already_watched: list[BgaTableInfo]
+
+
 class BgaMonitor:
+    # Followed players are re-scanned far less often than tables are polled: each
+    # scan costs two HTTP round-trips to BGA and a new table only appears when a
+    # player joins one, which is a human-scale event.
+    _FOLLOW_SYNC_INTERVAL_SECONDS = 300.0
+    # A table that just finished is unwatched by `_finalize_finished_table`, but BGA
+    # can still list it as being played for a short while. Without this cooldown the
+    # next follow scan would re-watch it and republish a turn message for a dead game.
+    _FINISHED_TABLE_COOLDOWN_SECONDS = 3600.0
+
     def __init__(
         self,
         bot: discord.Client,
@@ -37,6 +53,8 @@ class BgaMonitor:
         self._table_tasks: dict[str, asyncio.Task[None]] = {}
         self._active_turn_messages: dict[int, ActiveTurnMessage] = {}
         self._last_player_name_refresh_at: dict[str, float] = {}
+        self._last_follow_sync_at: dict[tuple[str, str, str], float] = {}
+        self._recently_finished_tables: dict[str, float] = {}
         self.sync_tables.change_interval(seconds=max(5, poll_seconds))
 
     def start(self) -> None:
@@ -51,6 +69,8 @@ class BgaMonitor:
         self._table_tasks.clear()
         self._active_turn_messages.clear()
         self._last_player_name_refresh_at.clear()
+        self._last_follow_sync_at.clear()
+        self._recently_finished_tables.clear()
 
     @tasks.loop(seconds=30)
     async def sync_tables(self) -> None:
@@ -60,6 +80,10 @@ class BgaMonitor:
         await self._sync_tables_once()
 
     async def _sync_tables_once(self) -> None:
+        # Runs first so tables discovered for followed players get a worker in this
+        # same pass instead of waiting for the next tick.
+        await self._sync_followed_players()
+
         subscriptions = self.database.list_watch_subscriptions()
         active_table_ids = {subscription.table_id for subscription in subscriptions}
         active_subscription_ids = {subscription.subscription_id for subscription in subscriptions}
@@ -92,6 +116,124 @@ class BgaMonitor:
     @sync_tables.before_loop
     async def before_sync_tables(self) -> None:
         await self.bot.wait_until_ready()
+
+    async def sync_followed_player(
+        self,
+        *,
+        guild_id: str,
+        discord_user_id: str,
+        channel_id: str,
+        bga_player_id: str,
+        created_by_discord_user_id: str,
+    ) -> FollowSyncResult:
+        """Watch every table the player currently sits at that this channel misses.
+
+        Raises ``BgaClientError`` (or ``BgaPlayerNotFoundError``) if BGA cannot be
+        queried, so the caller can report it. Marks the follow as freshly synced so
+        an immediate call from the slash command is not repeated by the next tick.
+        """
+        self._last_follow_sync_at[(guild_id, discord_user_id, channel_id)] = time.monotonic()
+        player_tables = await asyncio.to_thread(self.bga_client.fetch_player_tables, bga_player_id)
+
+        subscriptions = await asyncio.to_thread(self.database.list_watch_subscriptions)
+        watched_table_ids = {
+            item.table_id
+            for item in subscriptions
+            if item.guild_id == guild_id and item.channel_id == channel_id
+        }
+
+        added: list[BgaTableInfo] = []
+        already_watched: list[BgaTableInfo] = []
+        for table in player_tables.tables:
+            if table.table_id in watched_table_ids:
+                already_watched.append(table)
+                continue
+            if self._is_recently_finished(table.table_id):
+                continue
+            await asyncio.to_thread(
+                self.database.upsert_watch_subscription,
+                table_id=table.table_id,
+                table_url=table.table_url,
+                base_url=table.base_url,
+                gameserver=table.gameserver,
+                guild_id=guild_id,
+                channel_id=channel_id,
+                created_by_discord_user_id=created_by_discord_user_id,
+                game_name=table.game_name,
+            )
+            added.append(table)
+
+        return FollowSyncResult(
+            player_name=player_tables.player_name,
+            added=added,
+            already_watched=already_watched,
+        )
+
+    async def _sync_followed_players(self) -> None:
+        follows = await asyncio.to_thread(self.database.list_followed_players)
+        follow_keys = {(item.guild_id, item.discord_user_id, item.channel_id) for item in follows}
+        for stale_key in set(self._last_follow_sync_at) - follow_keys:
+            del self._last_follow_sync_at[stale_key]
+        if not follows:
+            return
+
+        now = time.monotonic()
+        for follow in follows:
+            follow_key = (follow.guild_id, follow.discord_user_id, follow.channel_id)
+            if now - self._last_follow_sync_at.get(follow_key, 0.0) < self._FOLLOW_SYNC_INTERVAL_SECONDS:
+                continue
+            self._last_follow_sync_at[follow_key] = now
+
+            linked_user = await asyncio.to_thread(
+                self.database.get_linked_user, follow.guild_id, follow.discord_user_id
+            )
+            if linked_user is None or not linked_user.bga_player_id.strip():
+                LOGGER.warning(
+                    tr("follow_sync_skipped_without_id", discord_user_id=follow.discord_user_id)
+                )
+                continue
+
+            try:
+                result = await self.sync_followed_player(
+                    guild_id=follow.guild_id,
+                    discord_user_id=follow.discord_user_id,
+                    channel_id=follow.channel_id,
+                    bga_player_id=linked_user.bga_player_id,
+                    created_by_discord_user_id=follow.created_by_discord_user_id,
+                )
+            except BgaClientError as exc:
+                LOGGER.warning(
+                    tr(
+                        "follow_sync_failed",
+                        discord_user_id=follow.discord_user_id,
+                        bga_player_id=linked_user.bga_player_id,
+                        error=exc,
+                    )
+                )
+                continue
+
+            if result.added:
+                LOGGER.info(
+                    tr(
+                        "follow_sync_added",
+                        count=len(result.added),
+                        bga_player_id=linked_user.bga_player_id,
+                        channel_id=follow.channel_id,
+                        table_ids=", ".join(item.table_id for item in result.added),
+                    )
+                )
+
+    def _remember_finished_table(self, table_id: str) -> None:
+        self._recently_finished_tables[table_id] = time.monotonic()
+
+    def _is_recently_finished(self, table_id: str) -> bool:
+        finished_at = self._recently_finished_tables.get(table_id)
+        if finished_at is None:
+            return False
+        if time.monotonic() - finished_at > self._FINISHED_TABLE_COOLDOWN_SECONDS:
+            del self._recently_finished_tables[table_id]
+            return False
+        return True
 
     async def _run_table_worker(self, table_id: str) -> None:
         backoff_seconds = 5
@@ -278,6 +420,9 @@ class BgaMonitor:
         subscriptions: list[WatchSubscription],
         table_id: str,
     ) -> None:
+        # Block the follow scan from immediately re-watching this table while BGA
+        # still advertises it as being played.
+        self._remember_finished_table(table_id)
         for subscription in subscriptions:
             active_message = self._active_turn_messages.get(subscription.subscription_id)
             if active_message is not None:

@@ -51,6 +51,58 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "EN": "BGA table URL (game link, tableview link) or table id",
         "FR": "URL de table BGA (lien de jeu, lien tableview) ou identifiant de table",
     },
+    "command_follow_tables_description": {
+        "EN": "Toggle automatic watching of a member's BGA tables in this channel",
+        "FR": "Active/desactive le suivi auto des tables BGA d'un membre dans ce salon",
+    },
+    "command_follow_tables_member": {
+        "EN": "Discord member whose BGA tables should be followed",
+        "FR": "Membre Discord dont les tables BGA doivent etre suivies",
+    },
+    "error_follow_member_not_linked": {
+        "EN": "{member_mention} is not linked to any BGA player on this server. Link them first with `/bga link-member`.",
+        "FR": "{member_mention} n'est lie a aucun joueur BGA sur ce serveur. Lie-le d'abord avec `/bga link-member`.",
+    },
+    "error_follow_member_without_id": {
+        "EN": "{member_mention} is linked to the BGA name `{bga_name}` but has no BGA ID yet, and the ID is required to list their tables.\nEither set it with `/bga link-member member bga_player_id:<id>`, or wait for the bot to auto-complete it the next time they show up on a watched table.",
+        "FR": "{member_mention} est lie au nom BGA `{bga_name}` mais n'a pas encore d'ID BGA, or l'ID est indispensable pour lister ses tables.\nRenseigne-le avec `/bga link-member membre bga_player_id:<id>`, ou attends que le bot le complete automatiquement lors de sa prochaine apparition sur une table surveillee.",
+    },
+    "error_follow_unknown_player": {
+        "EN": "BGA does not know any player with ID `{bga_player_id}` (linked to {member_mention}). Fix the link with `/bga link-member`.",
+        "FR": "BGA ne connait aucun joueur avec l'ID `{bga_player_id}` (lie a {member_mention}). Corrige le lien avec `/bga link-member`.",
+    },
+    "error_follow_lookup_failed": {
+        "EN": "Could not list the BGA tables of {member_mention}: {error}",
+        "FR": "Impossible de lister les tables BGA de {member_mention}: {error}",
+    },
+    "follow_tables_enabled": {
+        "EN": "Automatic follow **enabled** for {member_mention} (`{bga_name}` / `{bga_id}`) in <#{channel_id}>.",
+        "FR": "Suivi automatique **ACTIVE** pour {member_mention} (`{bga_name}` / `{bga_id}`) dans <#{channel_id}>.",
+    },
+    "follow_tables_disabled": {
+        "EN": "Automatic follow **disabled** for {member_mention} in <#{channel_id}>.\nTables already watched stay watched; remove them with `/bga unwatch` or `/bga unwatch-all`.",
+        "FR": "Suivi automatique **DESACTIVE** pour {member_mention} dans <#{channel_id}>.\nLes tables deja surveillees le restent ; retire-les avec `/bga unwatch` ou `/bga unwatch-all`.",
+    },
+    "follow_tables_added_header": {
+        "EN": "Newly watched tables ({count}):",
+        "FR": "Tables nouvellement surveillees ({count}) :",
+    },
+    "follow_tables_added_line": {
+        "EN": "- `{table_id}` | {game_name}",
+        "FR": "- `{table_id}` | {game_name}",
+    },
+    "follow_tables_added_none": {
+        "EN": "No new table to watch: the player has no ongoing table, or they are all already watched in this channel.",
+        "FR": "Aucune nouvelle table a surveiller : le joueur n'a aucune table en cours, ou elles sont deja toutes surveillees dans ce salon.",
+    },
+    "follow_tables_already_watched": {
+        "EN": "Already watched here ({count}): {table_ids}",
+        "FR": "Deja surveillees ici ({count}) : {table_ids}",
+    },
+    "follow_tables_toggle_hint": {
+        "EN": "New tables are picked up automatically. Run `/bga follow-tables` again on this member to disable.",
+        "FR": "Les nouvelles tables seront prises en compte automatiquement. Relance `/bga follow-tables` sur ce membre pour desactiver.",
+    },
     "command_unwatch_description": {
         "EN": "Remove a watched BGA table from this channel",
         "FR": "Retire une table BGA surveillee dans ce salon",
@@ -334,6 +386,50 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "error_tableinfos_missing_data": {
         "EN": "Public tableinfos does not contain a valid `data` block for table {table_id}.",
         "FR": "tableinfos public ne contient pas de bloc `data` valide pour la table {table_id}.",
+    },
+    "player_tables_resolved": {
+        "EN": "Player {player_id} currently sits at {count} watchable table(s).",
+        "FR": "Le joueur {player_id} est actuellement sur {count} table(s) surveillable(s).",
+    },
+    "error_player_tables_missing_request_token": {
+        "EN": "Could not obtain the anonymous request token from the playertables page for player {player_id}.",
+        "FR": "Impossible d'obtenir le jeton de requete anonyme depuis la page playertables pour le joueur {player_id}.",
+    },
+    "error_load_player_tables": {
+        "EN": "Could not load the table list for player {player_id}: {error}",
+        "FR": "Impossible de charger la liste des tables du joueur {player_id}: {error}",
+    },
+    "error_player_tables_http": {
+        "EN": "The player table list returned HTTP {status_code} for player {player_id}.",
+        "FR": "La liste des tables renvoie HTTP {status_code} pour le joueur {player_id}.",
+    },
+    "error_player_tables_invalid_json": {
+        "EN": "The player table list is not valid JSON for player {player_id}.",
+        "FR": "La liste des tables n'est pas un JSON valide pour le joueur {player_id}.",
+    },
+    "error_player_tables_unexpected_payload": {
+        "EN": "Unexpected player table list payload for player {player_id}: status={status} error={error}",
+        "FR": "Payload inattendu de la liste des tables pour le joueur {player_id}: status={status} error={error}",
+    },
+    "error_player_tables_missing_data": {
+        "EN": "The player table list does not contain a valid `data` block for player {player_id}.",
+        "FR": "La liste des tables ne contient pas de bloc `data` valide pour le joueur {player_id}.",
+    },
+    "error_player_tables_unknown_player": {
+        "EN": "BGA does not know any player with ID {player_id}.",
+        "FR": "BGA ne connait aucun joueur avec l'ID {player_id}.",
+    },
+    "follow_sync_skipped_without_id": {
+        "EN": "Follow sync skipped for Discord user {discord_user_id}: no BGA ID is linked anymore.",
+        "FR": "Sync du suivi ignoree pour l'utilisateur Discord {discord_user_id}: plus aucun ID BGA n'est lie.",
+    },
+    "follow_sync_failed": {
+        "EN": "Follow sync failed for Discord user {discord_user_id} (BGA {bga_player_id}): {error}",
+        "FR": "Sync du suivi echouee pour l'utilisateur Discord {discord_user_id} (BGA {bga_player_id}): {error}",
+    },
+    "follow_sync_added": {
+        "EN": "Follow sync watched {count} new table(s) for BGA {bga_player_id} in channel {channel_id}: {table_ids}",
+        "FR": "La sync du suivi a ajoute {count} nouvelle(s) table(s) pour BGA {bga_player_id} dans le salon {channel_id}: {table_ids}",
     },
     "error_websocket_closed": {
         "EN": "Websocket connection closed: {error}",

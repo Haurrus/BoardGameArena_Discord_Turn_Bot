@@ -10,7 +10,7 @@ Target workflow:
 - you manually link a Discord member with `/bga link-member @discord BgaName BgaId`
 - the link can be partial: name only, ID only, or both
 - the bot fills the missing field automatically when it observes a table
-- you add a BGA table with `/bga watch <game_url | tableview_link | table_id>`
+- you add a BGA table with `/bga watch <game_url | tableview_link | table_id>`, or let the bot find them for you with `/bga follow-tables @discord`
 - the bot detects whose turn it is
 - it creates, updates, deletes, then recreates Discord messages as turns evolve
 - when the game is over, it removes the last active message and automatically removes the watch
@@ -318,6 +318,27 @@ Rules:
 - the watch is attached to the current guild and channel
 - the websocket worker starts immediately after the command, without waiting for the next scheduler cycle
 
+### `/bga follow-tables`
+
+Toggle automatic watching of every table a linked member plays on, in the current channel.
+
+Syntax:
+
+```text
+/bga follow-tables @Member
+```
+
+Rules:
+- the command is a toggle: the first call enables the follow, the next call on the same member in the same channel disables it. The reply always states the resulting state
+- the member must be linked **and have a BGA ID** (`/bga link-member`). Linked by name only is not enough, because the table list is keyed on the numeric id. The reply says so explicitly; the id also auto-completes on its own once the member is seen on a watched table
+- on enable, every ongoing table of that player is watched right away, exactly as if `/bga watch` had been run on each one
+- afterwards the bot re-scans the player every 5 minutes and watches any new table automatically
+- the follow is per guild and per channel, like the BGA links themselves: following the same member from two channels watches their tables in both (and notifies in both)
+- disabling the follow does **not** unwatch tables already watched; remove them with `/bga unwatch` / `/bga unwatch-all`
+- a table that ends is auto-unwatched as usual, and is not re-watched by the follow
+- unlinking the member with `/bga unlink-member` also removes their follows on that server
+- fully anonymous: the bot reads `playertables?player=<id>` -> `requestToken` -> `tablemanager/tableinfos` with `playerfilter=<id>`, which is readable without an account
+
 ### `/bga unwatch`
 
 Remove a watch for the table in the current channel.
@@ -521,7 +542,7 @@ Responsibilities:
 - parse table URLs
 - store watches and Discord/BGA links
 - support partial links and automatic enrichment
-- trigger an immediate monitor refresh after `/bga watch`, `/bga unwatch`, and `/bga unwatch-all`
+- trigger an immediate monitor refresh after `/bga watch`, `/bga follow-tables`, `/bga unwatch`, and `/bga unwatch-all`
 
 #### `src/bga_turn/database.py`
 

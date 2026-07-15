@@ -10,7 +10,7 @@ Le workflow cible est simple :
 - tu lies manuellement un membre Discord avec `/bga link-member @discord NomBGA IDBGA`
 - le lien peut etre partiel : seul le nom, seul l'ID, ou les deux
 - le bot enrichit automatiquement le champ manquant quand il observe une table
-- tu ajoutes une table BGA avec `/bga watch <url_de_jeu | lien_tableview | id_table>`
+- tu ajoutes une table BGA avec `/bga watch <url_de_jeu | lien_tableview | id_table>`, ou tu laisses le bot les trouver avec `/bga follow-tables @discord`
 - le bot detecte qui doit jouer
 - il cree, met a jour, supprime puis recree les messages Discord au rythme des tours
 - quand la partie est terminee, il supprime le dernier message actif et retire automatiquement la watch
@@ -318,6 +318,27 @@ Regles :
 - la watch est associee au serveur et au salon courant
 - le worker websocket est demarre immediatement apres la commande, sans attendre le prochain cycle du scheduler
 
+### `/bga follow-tables`
+
+Active ou desactive le suivi automatique de toutes les tables d'un membre lie, dans le salon courant.
+
+Syntaxe :
+
+```text
+/bga follow-tables @Membre
+```
+
+Regles :
+- la commande est un toggle : le premier appel active le suivi, l'appel suivant sur le meme membre dans le meme salon le desactive. La reponse indique toujours l'etat resultant
+- le membre doit etre lie **et avoir un ID BGA** (`/bga link-member`). Un lien par nom seul ne suffit pas, car la liste des tables est indexee sur l'id numerique. La reponse le dit explicitement ; l'id se complete aussi tout seul des que le membre est vu sur une table surveillee
+- a l'activation, toutes les tables en cours du joueur sont surveillees immediatement, exactement comme si `/bga watch` avait ete lance sur chacune
+- ensuite le bot rescanne le joueur toutes les 5 minutes et surveille automatiquement toute nouvelle table
+- le suivi est par serveur et par salon, comme les liens BGA eux-memes : suivre le meme membre depuis deux salons surveille ses tables dans les deux (et notifie dans les deux)
+- desactiver le suivi ne retire **pas** les tables deja surveillees ; retire-les avec `/bga unwatch` / `/bga unwatch-all`
+- une table terminee est auto-unwatchee comme d'habitude, et n'est pas re-surveillee par le suivi
+- delier le membre avec `/bga unlink-member` supprime aussi ses suivis sur ce serveur
+- entierement anonyme : le bot lit `playertables?player=<id>` -> `requestToken` -> `tablemanager/tableinfos` avec `playerfilter=<id>`, accessible sans compte
+
 ### `/bga unwatch`
 
 Supprime une watch pour la table dans le salon courant.
@@ -521,7 +542,7 @@ Responsabilites :
 - parse les URLs de table
 - enregistre les watches et les liens Discord/BGA
 - autorise les liens partiels et leur enrichissement automatique
-- declenche un rafraichissement immediat du monitor apres `/bga watch`, `/bga unwatch` et `/bga unwatch-all`
+- declenche un rafraichissement immediat du monitor apres `/bga watch`, `/bga follow-tables`, `/bga unwatch` et `/bga unwatch-all`
 
 #### `src/bga_turn/database.py`
 

@@ -4,7 +4,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from .models import LinkedUser, WatchSubscription
+from .models import FollowedPlayer, LinkedUser, WatchSubscription
 from .utils import json_dumps, json_loads_dict, json_loads_list, utc_now_iso
 
 
@@ -90,6 +90,12 @@ class Database:
         with self._lock:
             cursor = self._connection.execute(
                 "DELETE FROM users WHERE guild_id = ? AND discord_user_id = ?",
+                (guild_id, discord_user_id),
+            )
+            # Stands in for the foreign key `followed_players` cannot declare; an
+            # auto-follow without a BGA link can never resolve a player id.
+            self._connection.execute(
+                "DELETE FROM followed_players WHERE guild_id = ? AND discord_user_id = ?",
                 (guild_id, discord_user_id),
             )
             self._connection.commit()
@@ -196,6 +202,79 @@ class Database:
             if updated_count:
                 self._connection.commit()
         return updated_count
+
+    def toggle_followed_player(
+        self,
+        *,
+        guild_id: str,
+        discord_user_id: str,
+        channel_id: str,
+        created_by_discord_user_id: str,
+    ) -> bool:
+        """Flip auto-follow for a member in a channel and return the resulting state.
+
+        ``True`` means the member is now followed. The delete/insert pair runs under
+        the connection lock so two concurrent slash commands cannot both observe the
+        same "off" state and end up inserting twice.
+        """
+        now = utc_now_iso()
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                DELETE FROM followed_players
+                WHERE guild_id = ? AND discord_user_id = ? AND channel_id = ?
+                """,
+                (guild_id, discord_user_id, channel_id),
+            )
+            if cursor.rowcount > 0:
+                self._connection.commit()
+                return False
+
+            self._connection.execute(
+                """
+                INSERT INTO followed_players (
+                    guild_id,
+                    discord_user_id,
+                    channel_id,
+                    created_by_discord_user_id,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (guild_id, discord_user_id, channel_id, created_by_discord_user_id, now),
+            )
+            self._connection.commit()
+            return True
+
+    def is_player_followed(self, *, guild_id: str, discord_user_id: str, channel_id: str) -> bool:
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT 1 FROM followed_players
+                WHERE guild_id = ? AND discord_user_id = ? AND channel_id = ?
+                """,
+                (guild_id, discord_user_id, channel_id),
+            ).fetchone()
+        return row is not None
+
+    def list_followed_players(self) -> list[FollowedPlayer]:
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT follow_id, guild_id, discord_user_id, channel_id, created_by_discord_user_id
+                FROM followed_players
+                ORDER BY guild_id, channel_id, discord_user_id
+                """
+            ).fetchall()
+        return [
+            FollowedPlayer(
+                follow_id=int(row["follow_id"]),
+                guild_id=row["guild_id"],
+                discord_user_id=row["discord_user_id"],
+                channel_id=row["channel_id"],
+                created_by_discord_user_id=row["created_by_discord_user_id"],
+            )
+            for row in rows
+        ]
 
     def upsert_watch_subscription(
         self,
