@@ -290,6 +290,21 @@ Syntaxe :
 /bga unlink-member @Membre
 ```
 
+### `/bga help`
+
+Explique ce que fait le bot et comment l'utiliser.
+
+Syntaxe :
+
+```text
+/bga help
+```
+
+Regles :
+- la reponse est ephemere : seul celui qui lance la commande la voit, et elle peut etre masquee. Rien n'est publie dans le salon
+- elle est envoyee sous forme d'embed plutot qu'en texte simple, car l'aide depasse la limite Discord de 2000 caracteres par message (la description d'un embed en accepte 4096)
+- le texte suit `BOT_LANG` comme tous les autres messages
+
 ### `/bga linked`
 
 Affiche tous les membres Discord actuellement lies a un ID BGA.

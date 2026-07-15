@@ -15,6 +15,130 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "EN": "Board Game Arena commands",
         "FR": "Commandes Board Game Arena",
     },
+    "command_help_description": {
+        "EN": "Show what the bot does and how to use it",
+        "FR": "Explique ce que fait le bot et comment l'utiliser",
+    },
+    "help_header": {
+        "EN": "╔═══════════════════════════════╗\nBGA BOT — HELP\n╚═══════════════════════════════╝",
+        "FR": "╔═══════════════════════════════╗\nBOT BGA — AIDE\n╚═══════════════════════════════╝",
+    },
+    "help_section_intro": {
+        "EN": (
+            "・ WHAT THIS BOT DOES\n"
+            "It spectates public Board Game Arena tables and posts a message when someone has to play.\n"
+            "No BGA account, no password, no cookie: it only reads what any anonymous spectator can see.\n"
+            "The message is updated as the turn moves on, and removed once nobody is waiting."
+        ),
+        "FR": (
+            "・ CE QUE FAIT CE BOT\n"
+            "Il observe des tables Board Game Arena publiques en mode spectateur et publie un message quand quelqu'un doit jouer.\n"
+            "Aucun compte BGA, aucun mot de passe, aucun cookie : il ne lit que ce qu'un spectateur anonyme peut voir.\n"
+            "Le message est mis a jour au fil du tour, puis retire quand plus personne n'est attendu."
+        ),
+    },
+    "help_section_watch": {
+        "EN": (
+            "・ WATCH A TABLE\n"
+            "The bot follows the game and notifies when it's someone's turn to play.\n"
+            "/bga watch <table_link>\n"
+            "Example ▸ /bga watch https://boardgamearena.com/6/perfectwords?table=827318521\n"
+            "Copy the full table URL from your browser. A tableview link or the bare table id works too."
+        ),
+        "FR": (
+            "・ SURVEILLER UNE TABLE\n"
+            "Le bot suit la partie et notifie quand c'est au tour de quelqu'un de jouer.\n"
+            "/bga watch <lien_de_la_table>\n"
+            "Exemple ▸ /bga watch https://boardgamearena.com/6/perfectwords?table=827318521\n"
+            "Copie l'URL complete de la table depuis ton navigateur. Un lien tableview ou l'id seul marchent aussi."
+        ),
+    },
+    "help_section_follow": {
+        "EN": (
+            "・ FOLLOW A PLAYER — ON / OFF\n"
+            "Watch every table a member plays on, automatically, instead of adding them one by one.\n"
+            "/bga follow-tables @nickname\n"
+            "Example ▸ /bga follow-tables @Haurrus\n"
+            "Run it once to turn it ON, run it again to turn it OFF: the reply always tells you which state you are in.\n"
+            "New tables are picked up on their own within 5 minutes. The member must be linked and have a BGA ID."
+        ),
+        "FR": (
+            "・ SUIVRE UN JOUEUR — ON / OFF\n"
+            "Surveille automatiquement toutes les tables d'un membre, au lieu de les ajouter une par une.\n"
+            "/bga follow-tables @pseudo\n"
+            "Exemple ▸ /bga follow-tables @Haurrus\n"
+            "Lance-la une fois pour ACTIVER, relance-la pour DESACTIVER : la reponse indique toujours l'etat courant.\n"
+            "Les nouvelles tables sont prises en compte toutes seules sous 5 minutes. Le membre doit etre lie et avoir un ID BGA."
+        ),
+    },
+    "help_section_link": {
+        "EN": (
+            "・ ADD A PLAYER\n"
+            "Link a Discord member to their Board Game Arena account.\n"
+            "/bga link-member @nickname BGAName\n"
+            "Example ▸ /bga link-member @Haurrus Haurrus\n"
+            "The bot fills in the rest on its own as soon as it sees the person play.\n"
+            "You can also give the numeric ID directly ▸ /bga link-member @Haurrus Haurrus 91713763"
+        ),
+        "FR": (
+            "・ AJOUTER UN JOUEUR\n"
+            "Lie un membre Discord a son compte Board Game Arena.\n"
+            "/bga link-member @pseudo NomBGA\n"
+            "Exemple ▸ /bga link-member @Haurrus Haurrus\n"
+            "Le bot complete le reste tout seul des qu'il voit la personne jouer.\n"
+            "Tu peux aussi donner l'ID numerique directement ▸ /bga link-member @Haurrus Haurrus 91713763"
+        ),
+    },
+    "help_section_other": {
+        "EN": (
+            "・ OTHER COMMANDS\n"
+            "/bga watchlist → lists watched tables\n"
+            "/bga status → state of tracked games\n"
+            "/bga linked → lists linked members\n"
+            "/bga unwatch → stops watching a table\n"
+            "/bga unwatch-all → stops all watches\n"
+            "/bga unlink-member → removes a member's link"
+        ),
+        "FR": (
+            "・ AUTRES COMMANDES\n"
+            "/bga watchlist → liste les tables surveillees\n"
+            "/bga status → etat des parties suivies\n"
+            "/bga linked → liste les membres lies\n"
+            "/bga unwatch → arrete de surveiller une table\n"
+            "/bga unwatch-all → arrete toutes les surveillances\n"
+            "/bga unlink-member → supprime le lien d'un membre"
+        ),
+    },
+    "help_section_permissions": {
+        "EN": (
+            "・ PERMISSIONS\n"
+            "Don't forget to give the bot the right permissions in the channel where you want it to work:\n"
+            "▸ View Channels\n"
+            "▸ Send Messages\n"
+            "▸ Embed Links\n"
+            "▸ Read Message History\n"
+            "Linking, unlinking and /bga unwatch-all also need the `Manage Server` permission."
+        ),
+        "FR": (
+            "・ PERMISSIONS\n"
+            "N'oublie pas de donner au bot les bonnes permissions dans le salon ou tu veux qu'il travaille :\n"
+            "▸ View Channels\n"
+            "▸ Send Messages\n"
+            "▸ Embed Links\n"
+            "▸ Read Message History\n"
+            "Lier, delier et /bga unwatch-all demandent en plus la permission `Manage Server`."
+        ),
+    },
+    "help_footer": {
+        "EN": (
+            "The bot automatically stops watching a table when the game is over.\n"
+            "Links and watches are specific to this server."
+        ),
+        "FR": (
+            "Le bot arrete automatiquement de surveiller une table quand la partie est terminee.\n"
+            "Les liens et les surveillances sont propres a ce serveur."
+        ),
+    },
     "command_link_member_description": {
         "EN": "Manually link a Discord member to a BGA player",
         "FR": "Lie manuellement un membre Discord a un joueur BGA",

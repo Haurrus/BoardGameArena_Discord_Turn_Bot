@@ -19,6 +19,10 @@ LOGGER = logging.getLogger(__name__)
 class BgaCommands(commands.Cog):
     bga = app_commands.Group(name="bga", description=tr("command_group_description"))
 
+    _HELP_SEPARATOR = "⎯" * 24
+    # Discord caps an embed description at 4096 characters (vs 2000 for content).
+    _EMBED_DESCRIPTION_LIMIT = 4096
+
     def __init__(self, database: Database, bga_client: BgaClient, monitor: BgaMonitor) -> None:
         self.database = database
         self.bga_client = bga_client
@@ -168,6 +172,42 @@ class BgaCommands(commands.Cog):
 
         for chunk in remaining_chunks:
             await interaction.followup.send(chunk, ephemeral=True)
+
+    @bga.command(name="help", description=tr("command_help_description"))
+    async def help_command(self, interaction: discord.Interaction) -> None:
+        """Post the full help as a single dismissible (ephemeral) embed.
+
+        An embed rather than plain content: the help does not fit in a 2000-character
+        message and would be split in two, whereas an embed description holds 4096.
+        Sections are still handed to `_split_message_lines` whole, so if the text ever
+        outgrows even that, it breaks between sections instead of mid-sentence.
+        """
+        sections = [
+            tr("help_section_intro"),
+            tr("help_section_watch"),
+            tr("help_section_follow"),
+            tr("help_section_link"),
+            tr("help_section_other"),
+            tr("help_section_permissions"),
+            tr("help_footer"),
+        ]
+        blocks = [sections[0]] + [f"{self._HELP_SEPARATOR}\n{section}" for section in sections[1:]]
+        chunks = self._split_message_lines(
+            tr("help_header"),
+            blocks,
+            max_length=self._EMBED_DESCRIPTION_LIMIT,
+        )
+
+        first_chunk, *remaining_chunks = chunks
+        await interaction.response.send_message(
+            embed=discord.Embed(description=first_chunk, color=discord.Color.blurple()),
+            ephemeral=True,
+        )
+        for chunk in remaining_chunks:
+            await interaction.followup.send(
+                embed=discord.Embed(description=chunk, color=discord.Color.blurple()),
+                ephemeral=True,
+            )
 
     @bga.command(name="link-member", description=tr("command_link_member_description"))
     @app_commands.describe(
