@@ -347,7 +347,7 @@ Rules:
 - the command is a toggle: the first call enables the follow, the next call on the same member in the same channel disables it. The reply always states the resulting state
 - the member must be linked **and have a BGA ID** (`/bga link-member`). Linked by name only is not enough, because the table list is keyed on the numeric id. The reply says so explicitly; the id also auto-completes on its own once the member is seen on a watched table
 - on enable, every ongoing table of that player is watched right away, exactly as if `/bga watch` had been run on each one
-- afterwards the bot re-scans the player every 5 minutes and watches any new table automatically
+- afterwards the bot re-scans the player every 3 minutes and watches any new table automatically
 - the follow is per guild and per channel, like the BGA links themselves: following the same member from two channels watches their tables in both (and notifies in both)
 - disabling the follow does **not** unwatch tables already watched; remove them with `/bga unwatch` / `/bga unwatch-all`
 - a table that ends is auto-unwatched as usual, and is not re-watched by the follow

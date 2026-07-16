@@ -34,7 +34,7 @@ class BgaMonitor:
     # Followed players are re-scanned far less often than tables are polled: each
     # scan costs two HTTP round-trips to BGA and a new table only appears when a
     # player joins one, which is a human-scale event.
-    _FOLLOW_SYNC_INTERVAL_SECONDS = 300.0
+    _FOLLOW_SYNC_INTERVAL_SECONDS = 180.0
     # A table that just finished is unwatched by `_finalize_finished_table`, but BGA
     # can still list it as being played for a short while. Without this cooldown the
     # next follow scan would re-watch it and republish a turn message for a dead game.

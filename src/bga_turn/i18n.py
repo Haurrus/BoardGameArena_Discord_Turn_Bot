@@ -60,7 +60,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "/bga follow-tables @nickname\n"
             "Example ▸ /bga follow-tables @Haurrus\n"
             "Run it once to turn it ON, run it again to turn it OFF: the reply always tells you which state you are in.\n"
-            "New tables are picked up on their own within 5 minutes. The member must be linked and have a BGA ID."
+            "New tables are picked up on their own within 3 minutes.\n"
+            "The member must be linked and have a BGA ID (see ADD A PLAYER below)."
         ),
         "FR": (
             "・ SUIVRE UN JOUEUR — ON / OFF\n"
@@ -68,7 +69,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "/bga follow-tables @pseudo\n"
             "Exemple ▸ /bga follow-tables @Haurrus\n"
             "Lance-la une fois pour ACTIVER, relance-la pour DESACTIVER : la reponse indique toujours l'etat courant.\n"
-            "Les nouvelles tables sont prises en compte toutes seules sous 5 minutes. Le membre doit etre lie et avoir un ID BGA."
+            "Les nouvelles tables sont prises en compte toutes seules sous 3 minutes.\n"
+            "Le membre doit etre lie et avoir un ID BGA (voir AJOUTER UN JOUEUR ci-dessous)."
         ),
     },
     "help_section_link": {
@@ -77,16 +79,22 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Link a Discord member to their Board Game Arena account.\n"
             "/bga link-member @nickname BGAName\n"
             "Example ▸ /bga link-member @Haurrus Haurrus\n"
-            "The bot fills in the rest on its own as soon as it sees the person play.\n"
-            "You can also give the numeric ID directly ▸ /bga link-member @Haurrus Haurrus 91713763"
+            "The BGA ID is optional: the bot fills it in on its own the first time it sees the person\n"
+            "play a turn on a watched table.\n"
+            "To set it right away, open the BGA profile and read the id in the URL:\n"
+            "https://boardgamearena.com/player?id=91713763 → the ID is 91713763\n"
+            "Then ▸ /bga link-member @Haurrus Haurrus 91713763"
         ),
         "FR": (
             "・ AJOUTER UN JOUEUR\n"
             "Lie un membre Discord a son compte Board Game Arena.\n"
             "/bga link-member @pseudo NomBGA\n"
             "Exemple ▸ /bga link-member @Haurrus Haurrus\n"
-            "Le bot complete le reste tout seul des qu'il voit la personne jouer.\n"
-            "Tu peux aussi donner l'ID numerique directement ▸ /bga link-member @Haurrus Haurrus 91713763"
+            "L'ID BGA est facultatif : le bot le complete tout seul des la premiere fois qu'il voit la\n"
+            "personne jouer un tour sur une table surveillee.\n"
+            "Pour le renseigner tout de suite, ouvre le profil BGA et lis l'id dans l'URL :\n"
+            "https://boardgamearena.com/player?id=91713763 → l'ID est 91713763\n"
+            "Puis ▸ /bga link-member @Haurrus Haurrus 91713763"
         ),
     },
     "help_section_other": {
@@ -152,8 +160,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "FR": "Nom BGA a afficher dans les notifications",
     },
     "command_link_member_id": {
-        "EN": "BGA player ID",
-        "FR": "ID joueur BGA",
+        "EN": "BGA player ID, found in the profile URL: boardgamearena.com/player?id=91713763",
+        "FR": "ID joueur BGA, visible dans l'URL du profil : boardgamearena.com/player?id=91713763",
     },
     "command_unlink_member_description": {
         "EN": "Remove the BGA link for a Discord member",
@@ -188,8 +196,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "FR": "{member_mention} n'est lie a aucun joueur BGA sur ce serveur. Lie-le d'abord avec `/bga link-member`.",
     },
     "error_follow_member_without_id": {
-        "EN": "{member_mention} is linked to the BGA name `{bga_name}` but has no BGA ID yet, and the ID is required to list their tables.\nEither set it with `/bga link-member member bga_player_id:<id>`, or wait for the bot to auto-complete it the next time they show up on a watched table.",
-        "FR": "{member_mention} est lie au nom BGA `{bga_name}` mais n'a pas encore d'ID BGA, or l'ID est indispensable pour lister ses tables.\nRenseigne-le avec `/bga link-member membre bga_player_id:<id>`, ou attends que le bot le complete automatiquement lors de sa prochaine apparition sur une table surveillee.",
+        "EN": "{member_mention} is linked to the BGA name `{bga_name}` but has no BGA ID yet, and the ID is required to list their tables.\nThe ID is in the BGA profile URL: `https://boardgamearena.com/player?id=91713763` → the ID is `91713763`.\nEither set it with `/bga link-member member bga_player_id:<id>`, or wait for the bot to auto-complete it the next time they play a turn on a watched table.",
+        "FR": "{member_mention} est lie au nom BGA `{bga_name}` mais n'a pas encore d'ID BGA, or l'ID est indispensable pour lister ses tables.\nL'ID se trouve dans l'URL du profil BGA : `https://boardgamearena.com/player?id=91713763` → l'ID est `91713763`.\nRenseigne-le avec `/bga link-member membre bga_player_id:<id>`, ou attends que le bot le complete automatiquement quand la personne jouera un tour sur une table surveillee.",
     },
     "error_follow_unknown_player": {
         "EN": "BGA does not know any player with ID `{bga_player_id}` (linked to {member_mention}). Fix the link with `/bga link-member`.",
